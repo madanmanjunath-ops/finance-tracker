@@ -1,0 +1,22 @@
+# Netlify configuration for Finance Tracker
+
+[build]
+  # No build step — these are plain static files. Just publish the root.
+  publish = "."
+  functions = "netlify/functions"
+
+# Let the app call /api/claude instead of the long function path.
+[[redirects]]
+  from = "/api/claude"
+  to = "/.netlify/functions/claude"
+  status = 200
+
+# Gmail ingestion webhook (the Apps Script posts here).
+[[redirects]]
+  from = "/api/ingest"
+  to = "/.netlify/functions/ingest"
+  status = 200
+
+# Daily snapshot email — 01:45 UTC = 07:15 AM IST.
+[functions."daily-email"]
+  schedule = "45 1 * * *"
