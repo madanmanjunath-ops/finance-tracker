@@ -44,6 +44,57 @@ const Compute = (function () {
     return (state.receivables || []).filter(r => !r.settled).reduce((s, r) => s + (r.owed || 0), 0);
   }
 
+  // Liquid net cash: things convertible to cash within ~1 day.
+  // cash (savings/current) + FDs + liquid/overnight funds. Excludes equity,
+  // real estate, locked instruments (PPF/NPS/ELSS).
+  const LIQUID_TYPES = ["bank", "cash", "current", "savings", "fd", "liquid", "rd"];
+  function liquidBreakdown(state) {
+    let cash = 0, fd = 0;
+    (state.accounts || []).forEach(a => {
+      const t = (a.type || "").toLowerCase();
+      const v = liveBal(a, state);
+      if (["bank", "cash", "current", "savings"].includes(t)) cash += v;
+      else if (["fd", "liquid", "rd"].includes(t)) fd += v;
+    });
+    return { cash, fd, total: cash + fd };
+  }
+
+  // Available credit across all cards: derive from each card's available-limit
+  // anchor minus spends booked on it since the anchor date.
+  function cardAvailable(card, state) {
+    const limit = card.limit || 0;
+    const anchor = card.availAnchor != null ? card.availAnchor : (limit - (card.balance || 0));
+    const since = card.availAnchorDate || "0000-00-00";
+    let avail = anchor;
+    (state.transactions || []).forEach(t => {
+      if (t.date < since) return;
+      if (t.account === "card:" + card.id) {
+        if (t.type === "expense") avail -= (t.amount || 0);
+        else if (t.type === "transfer") avail += (t.amount || 0); // paying the card frees limit
+      }
+    });
+    return Math.max(0, Math.min(limit, avail));
+  }
+  function creditSummary(state) {
+    let limit = 0, avail = 0;
+    (state.cards || []).forEach(c => { limit += conv(c.limit || 0, c.currency || "INR", state); avail += conv(cardAvailable(c, state), c.currency || "INR", state); });
+    return { limit, avail, used: limit - avail };
+  }
+
+  function fixedMonthly(state) {
+    return (state.fixedExpenses || []).reduce((s, f) => s + conv(f.amount || 0, f.currency || "INR", state), 0);
+  }
+  // Passive monthly income from yielding assets + any FD-type accounts with a rate.
+  function passiveMonthly(state) {
+    let total = 0;
+    (state.incomeAssets || []).forEach(a => { total += conv((a.principal || 0) * (a.rate || 0) / 100 / 12, a.currency || "INR", state); });
+    (state.accounts || []).forEach(a => {
+      const t = (a.type || "").toLowerCase();
+      if (["fd", "rd", "liquid"].includes(t) && a.rate) total += conv(liveBal(a, state) * a.rate / 100 / 12, a.currency || "INR", state);
+    });
+    return total;
+  }
+
   function sum(state, type, ym) {
     return state.transactions.filter(t => t.type === type && (!ym || inMonth(t.date, ym)))
       .reduce((s, t) => s + tAmt(t, state), 0);
@@ -98,7 +149,7 @@ const Compute = (function () {
   function groupByDate(txns) { const g = {}; txns.forEach(t => { (g[t.date] = g[t.date] || []).push(t); }); return Object.entries(g).sort((a, b) => b[0].localeCompare(a[0])); }
   function savingsRate(income, expense) { if (!income) return 0; return ((income - expense) / income) * 100; }
 
-  return { inMonth, thisMonth, prevMonth, rate, conv, tAmt, aBal, liveBal, totalLiveBal, owedToYou, sum, categoryBreakdown, monthlySeries, netWorth, netWorthSeries, pctChange, groupByDate, savingsRate };
+  return { inMonth, thisMonth, prevMonth, rate, conv, tAmt, aBal, liveBal, totalLiveBal, owedToYou, liquidBreakdown, cardAvailable, creditSummary, fixedMonthly, passiveMonthly, sum, categoryBreakdown, monthlySeries, netWorth, netWorthSeries, pctChange, groupByDate, savingsRate };
 })();
 
 window.Compute = Compute;

@@ -19,6 +19,150 @@ function KpiCard({ icon, iconBg, iconColor, label, value, delta, deltaDir, sub }
   );
 }
 
+function FixedExpensesCard({ state, actions }) {
+  const cur = state.displayCurrency;
+  const items = state.fixedExpenses || [];
+  const [editing, setEditing] = useState(false);
+  const total = Compute.fixedMonthly(state);
+  return (
+    <div className="lt-wrap" style={{ background: "var(--surface)" }}>
+      <div style={{ display: "flex", alignItems: "center", padding: "9px 14px", borderBottom: "1px solid var(--border-soft)" }}>
+        <span style={{ fontWeight: 700, fontSize: 13.5 }}>Fixed monthly</span>
+        <span className="num" style={{ marginLeft: 8, fontSize: 12, color: "var(--text-3)", fontWeight: 700 }}>{FT.fmt(total, cur)}/mo</span>
+        <button className="btn btn-sm" style={{ marginLeft: "auto" }} onClick={() => setEditing(true)}><Icon name="settings" size={13} />Manage</button>
+      </div>
+      {items.length ? (
+        <table className="ltable" style={{ fontSize: 12.5 }}>
+          <tbody>
+            {items.map(f => (
+              <tr key={f.id}>
+                <td style={{ whiteSpace: "nowrap" }}><span className="lt-dot" style={{ background: FT.catOf(f.category).color }}></span>{f.label}</td>
+                <td className="lt-mut" style={{ width: 50, textAlign: "right" }}>{f.dueDay ? f.dueDay + "th" : ""}</td>
+                <td className="lt-amt" style={{ width: 90 }}>{FT.fmt(f.amount, f.currency || cur)}</td>
+              </tr>
+            ))}
+            <tr className="lt-group"><td>Total</td><td></td><td className="lt-amt">{FT.fmt(total, cur)}</td></tr>
+          </tbody>
+        </table>
+      ) : <div className="empty" style={{ padding: "20px" }}><div style={{ fontSize: 12.5 }}>No fixed expenses yet. Tap Manage to add rent, EMIs, subscriptions.</div></div>}
+      {editing && <FixedExpenseEditor state={state} actions={actions} onClose={() => setEditing(false)} />}
+    </div>
+  );
+}
+
+function FixedExpenseEditor({ state, actions, onClose }) {
+  const cur = state.displayCurrency;
+  const [rows, setRows] = useState((state.fixedExpenses || []).map(f => ({ ...f })));
+  const [suggested, setSuggested] = useState(null);
+  const upd = (id, k, v) => setRows(rows.map(r => r.id === id ? { ...r, [k]: v } : r));
+  const add = () => setRows([...rows, { id: FT.uid(), label: "", amount: 0, currency: "INR", dueDay: 1, category: "bills" }]);
+  const del = (id) => setRows(rows.filter(r => r.id !== id));
+  function save() { actions.setFixedExpenses(rows.filter(r => r.label.trim() && r.amount > 0)); onClose(); }
+  function loadSuggestions() {
+    const s = actions.suggestFixedFromHistory(state);
+    setSuggested(s.filter(x => !rows.some(r => r.label.toLowerCase() === x.label.toLowerCase())));
+  }
+  return (
+    <Modal title="Fixed monthly expenses" wide onClose={onClose}
+      foot={<><button className="btn btn-ghost" onClick={onClose}>Cancel</button><button className="btn btn-primary" onClick={save}><Icon name="check" size={15} />Save</button></>}>
+      <div className="modal-body" style={{ gap: 10, overflowY: "auto", flex: 1, minHeight: 0 }}>
+        {rows.map(r => (
+          <div key={r.id} style={{ display: "flex", gap: 7, alignItems: "center" }}>
+            <input className="input" style={{ flex: 1.4, padding: "6px 9px", fontSize: 12.5 }} placeholder="Label" value={r.label} onChange={e => upd(r.id, "label", e.target.value)} />
+            <input className="input num" style={{ flex: 1, padding: "6px 9px", fontSize: 12.5 }} type="number" placeholder="Amount" value={r.amount || ""} onChange={e => upd(r.id, "amount", +e.target.value)} />
+            <select className="select" style={{ width: 78, padding: "6px 4px", fontSize: 12 }} value={r.dueDay} onChange={e => upd(r.id, "dueDay", +e.target.value)}>
+              {Array.from({ length: 28 }, (_, i) => i + 1).map(d => <option key={d} value={d}>{d}</option>)}
+            </select>
+            <select className="select" style={{ width: 100, padding: "6px 4px", fontSize: 12 }} value={r.category} onChange={e => upd(r.id, "category", e.target.value)}>
+              {FT.EXPENSE_CATS.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+            <button className="btn btn-icon btn-ghost" style={{ width: 26, height: 26, color: "var(--neg)" }} onClick={() => del(r.id)}><Icon name="x" size={13} /></button>
+          </div>
+        ))}
+        <div style={{ display: "flex", gap: 8 }}>
+          <button className="btn btn-sm" onClick={add}><Icon name="plus" size={13} />Add row</button>
+          <button className="btn btn-sm" onClick={loadSuggestions}><Icon name="sparkles" size={13} />Suggest from history</button>
+          <span style={{ fontSize: 11, color: "var(--text-3)", fontWeight: 600, alignSelf: "center" }}>Due-day items also feed your bills & brief.</span>
+        </div>
+        {suggested && suggested.length > 0 && (
+          <div style={{ background: "var(--bg-2)", borderRadius: "var(--radius-sm)", padding: 10 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 6 }}>Found {suggested.length} recurring — tap to add:</div>
+            {suggested.map(s => (
+              <button key={s.id} className="btn btn-sm" style={{ margin: 3 }} onClick={() => { setRows([...rows, s]); setSuggested(suggested.filter(x => x.id !== s.id)); }}>
+                + {s.label} {FT.fmtShort(s.amount, cur)}
+              </button>
+            ))}
+          </div>
+        )}
+        {suggested && suggested.length === 0 && <div style={{ fontSize: 12, color: "var(--text-3)", fontWeight: 600 }}>No new recurring patterns found.</div>}
+      </div>
+    </Modal>
+  );
+}
+
+function IncomeAssetsCard({ state, actions }) {
+  const cur = state.displayCurrency;
+  const items = state.incomeAssets || [];
+  const [editing, setEditing] = useState(false);
+  // include FD-type accounts with a rate, computed
+  const fromAccts = (state.accounts || []).filter(a => ["fd", "rd", "liquid"].includes((a.type || "").toLowerCase()) && a.rate).map(a => ({
+    id: "acct:" + a.id, label: a.name, principal: Compute.liveBal(a, state), rate: a.rate, currency: a.currency || "INR", fromAcct: true,
+  }));
+  const all = [...fromAccts, ...items];
+  const monthlyOf = (a) => Compute.conv((a.principal || 0) * (a.rate || 0) / 100 / 12, a.currency || "INR", state);
+  const total = all.reduce((s, a) => s + monthlyOf(a), 0);
+  return (
+    <div className="lt-wrap" style={{ background: "var(--surface)" }}>
+      <div style={{ display: "flex", alignItems: "center", padding: "9px 14px", borderBottom: "1px solid var(--border-soft)" }}>
+        <span style={{ fontWeight: 700, fontSize: 13.5 }}>Income assets</span>
+        <span className="num" style={{ marginLeft: 8, fontSize: 12, color: "var(--pos)", fontWeight: 700 }}>{FT.fmt(total, cur)}/mo</span>
+        <button className="btn btn-sm" style={{ marginLeft: "auto" }} onClick={() => setEditing(true)}><Icon name="settings" size={13} />Manage</button>
+      </div>
+      {all.length ? (
+        <table className="ltable" style={{ fontSize: 12.5 }}>
+          <thead><tr><th>Asset</th><th style={{ width: 50, textAlign: "right" }}>Rate</th><th style={{ width: 80, textAlign: "right" }}>₹/mo</th></tr></thead>
+          <tbody>
+            {all.map(a => (
+              <tr key={a.id}>
+                <td style={{ whiteSpace: "nowrap" }}>{a.label}{a.fromAcct && <span className="lt-mut" style={{ fontSize: 10.5, marginLeft: 5 }}>acct</span>}</td>
+                <td className="lt-mut" style={{ textAlign: "right" }}>{a.rate}%</td>
+                <td className="lt-amt" style={{ color: "var(--pos)" }}>{FT.fmt(monthlyOf(a), cur)}</td>
+              </tr>
+            ))}
+            <tr className="lt-group"><td>Passive total</td><td></td><td className="lt-amt" style={{ color: "var(--pos)" }}>{FT.fmt(total, cur)}</td></tr>
+          </tbody>
+        </table>
+      ) : <div className="empty" style={{ padding: "20px" }}><div style={{ fontSize: 12.5 }}>No income assets yet. Tap Manage to add FDs, deposits with their rate.</div></div>}
+      {editing && <IncomeAssetEditor state={state} actions={actions} onClose={() => setEditing(false)} />}
+    </div>
+  );
+}
+
+function IncomeAssetEditor({ state, actions, onClose }) {
+  const [rows, setRows] = useState((state.incomeAssets || []).map(a => ({ ...a })));
+  const upd = (id, k, v) => setRows(rows.map(r => r.id === id ? { ...r, [k]: v } : r));
+  const add = () => setRows([...rows, { id: FT.uid(), label: "", principal: 0, rate: 7, currency: "INR" }]);
+  const del = (id) => setRows(rows.filter(r => r.id !== id));
+  function save() { actions.setIncomeAssets(rows.filter(r => r.label.trim() && r.principal > 0)); onClose(); }
+  return (
+    <Modal title="Income-producing assets" wide onClose={onClose}
+      foot={<><button className="btn btn-ghost" onClick={onClose}>Cancel</button><button className="btn btn-primary" onClick={save}><Icon name="check" size={15} />Save</button></>}>
+      <div className="modal-body" style={{ gap: 10, overflowY: "auto", flex: 1, minHeight: 0 }}>
+        <div style={{ fontSize: 12, color: "var(--text-3)", fontWeight: 600 }}>FDs already in your Accounts (with a rate) show automatically. Add anything else here.</div>
+        {rows.map(r => (
+          <div key={r.id} style={{ display: "flex", gap: 7, alignItems: "center" }}>
+            <input className="input" style={{ flex: 1.4, padding: "6px 9px", fontSize: 12.5 }} placeholder="e.g. SBI FD" value={r.label} onChange={e => upd(r.id, "label", e.target.value)} />
+            <input className="input num" style={{ flex: 1, padding: "6px 9px", fontSize: 12.5 }} type="number" placeholder="Principal" value={r.principal || ""} onChange={e => upd(r.id, "principal", +e.target.value)} />
+            <input className="input num" style={{ width: 64, padding: "6px 9px", fontSize: 12.5 }} type="number" step="0.1" placeholder="%" value={r.rate || ""} onChange={e => upd(r.id, "rate", +e.target.value)} />
+            <button className="btn btn-icon btn-ghost" style={{ width: 26, height: 26, color: "var(--neg)" }} onClick={() => del(r.id)}><Icon name="x" size={13} /></button>
+          </div>
+        ))}
+        <button className="btn btn-sm" style={{ alignSelf: "flex-start" }} onClick={add}><Icon name="plus" size={13} />Add asset</button>
+      </div>
+    </Modal>
+  );
+}
+
 function OwedModal({ state, actions, onClose }) {
   const cur = state.displayCurrency;
   const open = (state.receivables || []).filter(r => !r.settled);
@@ -186,9 +330,13 @@ function Dashboard({ state, actions, go, openAdd }) {
 
   const recent = state.transactions.slice(0, 6);
   const liveCash = Compute.totalLiveBal(state);
+  const liq = Compute.liquidBreakdown(state);
+  const credit = Compute.creditSummary(state);
   const owed = Compute.owedToYou(state);
   const owedCount = (state.receivables || []).filter(r => !r.settled).length;
   const [showOwed, setShowOwed] = useState(false);
+  const pendingCount = (state.pending || []).length;
+  const uncatCount = state.transactions.filter(t => t.category === "uncat").length;
 
   // upcoming: manual recurring (next 16 days) + bills detected from emails
   const today = new Date();
@@ -208,28 +356,34 @@ function Dashboard({ state, actions, go, openAdd }) {
     <div className="grid" style={{ gap: 18 }}>
       <DailyBrief state={state} actions={actions} go={go} />
 
-      {/* balanced numbers: live cash, spend, owed, net worth */}
+      {/* top stat strip: net worth · live cash (cash+FD) · spent · available credit */}
       <div className="grid kpi-row" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))" }}>
-        <div className="card card-pad" style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 0 }}>
-          <span style={{ fontSize: 12, color: "var(--text-2)", fontWeight: 700 }}>Bank balance · live</span>
-          <span className="num" style={{ fontSize: 22, fontWeight: 700, whiteSpace: "nowrap" }}>{FT.fmt(liveCash, cur)}</span>
-          <span style={{ fontSize: 11.5, color: "var(--text-3)", fontWeight: 600 }}>across {state.accounts.filter(a => FT.acctType(a.type).asset !== false && a.type !== "loan").length} accounts</span>
-        </div>
-        <div className="card card-pad" style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 0 }}>
-          <span style={{ fontSize: 12, color: "var(--text-2)", fontWeight: 700 }}>Spent · this month</span>
-          <span className="num" style={{ fontSize: 22, fontWeight: 700, whiteSpace: "nowrap" }}>{FT.fmt(expThis, cur)}</span>
-          <span style={{ fontSize: 11.5, color: expDelta <= 0 ? "var(--pos)" : "var(--neg)", fontWeight: 600 }}>{expDelta <= 0 ? "▼" : "▲"} {Math.abs(expDelta).toFixed(0)}% vs last month</span>
-        </div>
-        <div className="card card-pad" style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 0, cursor: owed > 0 ? "pointer" : "default" }} onClick={() => owed > 0 && setShowOwed(true)}>
-          <span style={{ fontSize: 12, color: "var(--text-2)", fontWeight: 700 }}>Owed to you</span>
-          <span className="num" style={{ fontSize: 22, fontWeight: 700, color: owed > 0 ? "var(--pos)" : "var(--text)", whiteSpace: "nowrap" }}>{FT.fmt(owed, cur)}</span>
-          <span style={{ fontSize: 11.5, color: "var(--text-3)", fontWeight: 600 }}>{owedCount ? owedCount + " open · tap to settle" : "all settled"}</span>
-        </div>
         <div className="card card-pad" style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 0 }}>
           <span style={{ fontSize: 12, color: "var(--text-2)", fontWeight: 700 }}>Net worth</span>
           <span className="num" style={{ fontSize: 22, fontWeight: 700, whiteSpace: "nowrap" }}>{FT.fmt(nw.net, cur)}</span>
           <span style={{ fontSize: 11.5, color: nwDelta >= 0 ? "var(--pos)" : "var(--neg)", fontWeight: 600 }}>{nwDelta >= 0 ? "▲" : "▼"} {Math.abs(nwDelta).toFixed(1)}% this month</span>
         </div>
+        <div className="card card-pad" style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 0 }}>
+          <span style={{ fontSize: 12, color: "var(--text-2)", fontWeight: 700 }}>Live cash · liquid</span>
+          <span className="num" style={{ fontSize: 22, fontWeight: 700, whiteSpace: "nowrap" }}>{FT.fmt(liq.total, cur)}</span>
+          <span style={{ fontSize: 11.5, color: "var(--text-3)", fontWeight: 600 }}>{FT.fmtShort(liq.cash, cur)} cash + {FT.fmtShort(liq.fd, cur)} FD · <span style={{ color: "var(--accent)", cursor: "pointer" }} onClick={() => go("accounts")}>reconcile</span></span>
+        </div>
+        <div className="card card-pad" style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 0 }}>
+          <span style={{ fontSize: 12, color: "var(--text-2)", fontWeight: 700 }}>Spent · this month</span>
+          <span className="num" style={{ fontSize: 22, fontWeight: 700, whiteSpace: "nowrap" }}>{FT.fmt(expThis, cur)}</span>
+          <span style={{ fontSize: 11.5, color: expDelta <= 0 ? "var(--pos)" : "var(--neg)", fontWeight: 600 }}>{expDelta <= 0 ? "▼" : "▲"} {Math.abs(expDelta).toFixed(0)}% vs last</span>
+        </div>
+        <div className="card card-pad" style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 0 }}>
+          <span style={{ fontSize: 12, color: "var(--text-2)", fontWeight: 700 }}>Available credit</span>
+          <span className="num" style={{ fontSize: 22, fontWeight: 700, whiteSpace: "nowrap" }}>{FT.fmtShort(credit.avail, cur)}</span>
+          <span style={{ fontSize: 11.5, color: "var(--text-3)", fontWeight: 600 }}>of {FT.fmtShort(credit.limit, cur)} across {state.cards.length} card{state.cards.length !== 1 ? "s" : ""}</span>
+        </div>
+      </div>
+
+      {/* fixed expenses + income assets tables */}
+      <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 14 }}>
+        <FixedExpensesCard state={state} actions={actions} />
+        <IncomeAssetsCard state={state} actions={actions} />
       </div>
       {showOwed && <OwedModal state={state} actions={actions} onClose={() => setShowOwed(false)} />}
 
@@ -270,15 +424,36 @@ function Dashboard({ state, actions, go, openAdd }) {
         <div className="card card-pad fade-in">
           <div className="card-h">
             <div className="card-title">Recent activity</div>
-            <button className="btn btn-ghost btn-sm" onClick={() => go("transactions")}>View all <Icon name="chevronRight" size={15} /></button>
+            <button className="btn btn-ghost btn-sm" onClick={() => go("money")}>View all <Icon name="chevronRight" size={15} /></button>
           </div>
           <div>
             {recent.map(t => <TxnRow key={t.id} t={t} cur={cur} />)}
           </div>
         </div>
         <div className="grid" style={{ gap: 18, alignContent: "start" }}>
+          {(pendingCount > 0 || uncatCount > 0) && (
+            <div className="card card-pad fade-in" style={{ borderColor: "color-mix(in srgb, var(--warn) 30%, var(--border))" }}>
+              <div className="card-h"><div className="card-title">Needs your review</div></div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                {pendingCount > 0 && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <span className="brief-ico" style={{ background: "var(--warn-soft)", color: "var(--warn)" }}><Icon name="download" size={15} /></span>
+                    <div style={{ flex: 1 }}><div style={{ fontSize: 13, fontWeight: 650 }}>{pendingCount} imported · confirm</div><div style={{ fontSize: 11.5, color: "var(--text-3)", fontWeight: 600 }}>low-confidence auto-imports</div></div>
+                    <button className="btn btn-sm btn-primary" onClick={() => go("money")}>Review</button>
+                  </div>
+                )}
+                {uncatCount > 0 && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <span className="brief-ico" style={{ background: "var(--surface-2)", color: "var(--text-2)" }}><Icon name="wand" size={15} /></span>
+                    <div style={{ flex: 1 }}><div style={{ fontSize: 13, fontWeight: 650 }}>{uncatCount} need a label</div><div style={{ fontSize: 11.5, color: "var(--text-3)", fontWeight: 600 }}>mostly UPI to shops & autos</div></div>
+                    <button className="btn btn-sm" onClick={() => go("money")}>Fix</button>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
           <div className="card card-pad fade-in">
-            <div className="card-h"><div className="card-title">Budgets</div><button className="btn btn-ghost btn-sm" onClick={() => go("transactions")}>Manage</button></div>
+            <div className="card-h"><div className="card-title">Budgets</div><button className="btn btn-ghost btn-sm" onClick={() => go("money")}>Manage</button></div>
             <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
               {state.budgets.slice(0, 4).map(b => {
                 const c = FT.catOf(b.cat);

@@ -30,6 +30,15 @@ async function sbPatch(userId, data) {
 }
 
 function extractVPA(t){const m=String(t||"").match(/\b[a-z0-9._-]{2,}@[a-z]{2,}\b/i);return m?m[0]:null;}
+function looksLikeTransfer(text, data) {
+  const low = String(text || "").toLowerCase();
+  if (/\b(neft|imps|rtgs|upi transfer|fund transfer|self|own account|a\/c transfer|transferred to your)\b/.test(low)) {
+    // only when it references one of the user's own accounts/cards
+    const hints = ownHints(data || {});
+    return hints.some(h => low.includes(h));
+  }
+  return false;
+}
 function ownHints(data) {
   const out = new Set();
   const push = (v) => { v = String(v || "").toLowerCase().trim(); if (v.length >= 3) out.add(v); };
@@ -48,7 +57,7 @@ async function parseEmail(text, data) {
 If it confirms a transaction that ALREADY HAPPENED (debited/credited/spent/received):
 {"kind":"transaction","type":"income"|"expense"|"transfer","amount":<number>,"currency":"INR"|"USD"|"EUR"|"GBP","merchant":"<string>","account":"<string|null>","date":"YYYY-MM-DD","category":"<id or 'transfer'>","confidence":<0-100>}
 
-"merchant" must be a SHORT, human-friendly label a person instantly recognizes — the brand, payee, or purpose. NEVER raw bank names, reference numbers, or codes. Examples: "Swiggy", "House rent", "Skoda car EMI", "Salary". For a credit-card bill payment, name it "<card name> bill" using the user's card list (e.g. "Kotak Solitaire bill"). "account" is which of the user's accounts/cards the money moved on — if the email mentions a card (by name or last-4 digits), put that card's name and include its last 4 digits in "account" (e.g. "HDFC Infinia 0042"); copied from the user's list below if identifiable, else null.
+"merchant" must be a SHORT, human-friendly label a person instantly recognizes — the brand, payee, or purpose. CRITICAL: this is the OTHER party in the transaction (who you paid, or who paid you), NOT the bank or service that SENT the email. Ignore the email's sender/From line entirely — a debit alert from "HDFC Bank" about a payment to "Swiggy" has merchant "Swiggy", not "HDFC". Look inside the body for "paid to", "to VPA", "at <merchant>", "towards", "received from", the UPI handle, or the payee name. NEVER use raw bank names, reference numbers, or codes. Examples: "Swiggy", "House rent", "Skoda car EMI", "Salary". For a credit-card bill payment, name it "<card name> bill" using the user's card list (e.g. "Kotak Solitaire bill"). "account" is which of the user's accounts/cards the money moved on — if the email mentions a card (by name or last-4 digits), put that card's name and include its last 4 digits in "account" (e.g. "HDFC Infinia 0042"); copied from the user's list below if identifiable, else null.
 
 If it announces a bill or payment that is DUE IN THE FUTURE (bill generated, statement ready with amount due, premium/EMI/recharge reminder, "pay by <date>"):
 {"kind":"bill","amount":<number, the amount due>,"currency":"INR"|"USD"|"EUR"|"GBP","merchant":"<biller name>","dueDate":"YYYY-MM-DD","category":"<id>","confidence":<0-100>}
@@ -161,10 +170,40 @@ exports.handler = async (event) => {
   if (amt >= 1000 && existing.some(t => t.source === "gmail" && t.date === txn.date && t.type === txn.type && Math.abs((+t.amount || 0) - amt) < 0.01)) {
     return json(200, { ok: true, booked: "duplicate_skipped_fuzzy", merchant: txn.merchant, amount: amt });
   }
+  // Self-transfer guard: moving money between your OWN accounts produces TWO
+  // emails — a debit on the source and a credit on the destination — which the
+  // parsers may classify as different types (transfer + income). If this looks
+  // like a transfer, or an income/expense that pairs with an existing transfer
+  // of the same amount & day, treat the two as one transfer and skip the twin.
+  if (amt >= 500) {
+    const sameDayAmt = (t) => t.source === "gmail" && t.date === txn.date && Math.abs((+t.amount || 0) - amt) < 0.01;
+    const thisIsTransferish = txn.type === "transfer" || looksLikeTransfer(text, data);
+    // a) this is a transfer and a plain income/expense twin already exists → drop the twin by not adding a second record (we keep the transfer; if the twin is already booked, leave it but don't add another)
+    // b) this is income/expense but a transfer twin already exists → skip this one
+    if (!thisIsTransferish && existing.some(t => t.type === "transfer" && sameDayAmt(t))) {
+      return json(200, { ok: true, booked: "skipped_transfer_twin", merchant: txn.merchant, amount: amt });
+    }
+    if (thisIsTransferish && existing.some(t => (t.type === "income" || t.type === "expense") && sameDayAmt(t))) {
+      // promote: remove the mis-booked twin, keep this as the transfer
+      const next = JSON.parse(JSON.stringify(data));
+      next.transactions = (next.transactions || []).filter(t => !((t.type === "income" || t.type === "expense") && t.source === "gmail" && t.date === txn.date && Math.abs((+t.amount || 0) - amt) < 0.01));
+      txn.type = "transfer"; txn.category = "transfer"; txn.status = "auto";
+      next.transactions = [txn, ...next.transactions].sort((a, b) => b.date.localeCompare(a.date));
+      await sbPatch(user_id, next);
+      return json(200, { ok: true, booked: "transfer_merged", merchant: txn.merchant, amount: amt });
+    }
+  }
 
-  const threshold = (data.gmail && data.gmail.autoThreshold) != null ? data.gmail.autoThreshold : 85;
+  const threshold = (data.gmail && data.gmail.autoThreshold) != null ? data.gmail.autoThreshold : 70;
   const autoBook = (o.confidence || 0) >= threshold;
   const next = JSON.parse(JSON.stringify(data));
+  // credit-limit anchoring: if the email states an available limit, re-anchor the card
+  const availMatch = String(text).match(/available\s+(?:credit\s+)?limit[^0-9₹]*₹?\s*([\d,]+)/i);
+  if (availMatch && accountId.startsWith("card:")) {
+    const cid = accountId.slice(5);
+    const availVal = +availMatch[1].replace(/,/g, "");
+    if (availVal > 0) next.cards = (next.cards || []).map(c => c.id === cid ? { ...c, availAnchor: availVal, availAnchorDate: txn.date } : c);
+  }
   if (autoBook) { txn.status = "auto"; next.transactions = [txn, ...(next.transactions || [])].sort((a, b) => b.date.localeCompare(a.date)); }
   else { txn.status = "pending"; next.pending = [txn, ...(next.pending || [])]; }
   await sbPatch(user_id, next);

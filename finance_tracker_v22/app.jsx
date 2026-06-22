@@ -2,15 +2,13 @@
    app.jsx — shell, routing, state, actions, + cloud sync
    ============================================================ */
 const NAV = [
-  { id: "dashboard", label: "Dashboard", icon: "dashboard", title: "Dashboard", sub: "Your money at a glance" },
-  { id: "transactions", label: "Transactions", icon: "list", title: "Transactions", sub: "Every transaction, in and out" },
-  { id: "networth", label: "Net Worth", icon: "wallet", title: "Net Worth", sub: "Accounts, assets & goals" },
-  { id: "cards", label: "Cards", icon: "creditcard", title: "Credit Cards", sub: "Best card to use & rewards" },
-  { id: "investments", label: "Investments", icon: "trending", title: "Investments", sub: "Personalised guidance" },
-  { id: "insights", label: "Insights", icon: "lightbulb", title: "Insights", sub: "AI critique & spending flags" },
-  { id: "chat", label: "Ask AI", icon: "wand", title: "Ask AI", sub: "Chat with your finance assistant" },
-  { id: "import", label: "Import", icon: "download", title: "Import Data", sub: "Statements, files, email & review" },
-  { id: "settings", label: "Settings", icon: "settings", title: "Settings", sub: "Profile, currency, sync & data" },
+  { id: "dashboard", label: "Home", icon: "dashboard", title: "Home", sub: "Your money at a glance" },
+  { id: "money", label: "Money", icon: "list", title: "Money", sub: "Transactions, review & analysis" },
+  { id: "accounts", label: "Accounts", icon: "wallet", title: "Accounts", sub: "Bank, cash & net worth" },
+  { id: "cards", label: "Cards", icon: "creditcard", title: "Credit Cards", sub: "Limits, float & rewards" },
+  { id: "loans", label: "Loans", icon: "trending", title: "Loans", sub: "Debt, EMIs & payoff" },
+  { id: "grow", label: "Grow", icon: "lightbulb", title: "Grow", sub: "Plan, leverage & where you stand" },
+  { id: "settings", label: "Settings", icon: "settings", title: "Settings", sub: "Profile, rules, import, sync" },
 ];
 
 const CLOUD_UID_KEY = "ft_cloud_uid";
@@ -143,7 +141,24 @@ function App({ cloudOn, user }) {
   const actions = useMemo(() => ({
     addTxn: (t) => patch(s => ({ transactions: [t, ...s.transactions].sort((a, b) => b.date.localeCompare(a.date)) })),
     updateTxn: (t) => patch(s => ({ transactions: s.transactions.map(x => x.id === t.id ? t : x).sort((a, b) => b.date.localeCompare(a.date)) })),
-    deleteTxn: (id) => patch(s => ({ transactions: s.transactions.filter(x => x.id !== id) })),
+    deleteTxn: (id) => patch(s => {
+      const t = s.transactions.find(x => x.id === id);
+      let receivables = s.receivables || [];
+      if (t) {
+        // deleting a split expense removes its receivable; deleting a settlement
+        // re-opens the amount it had settled
+        if (t.splitId) receivables = receivables.filter(r => r.id !== t.splitId);
+        if (t.source === "settle" && t.note === "Split settlement") {
+          // best-effort: re-open the most recent matching settlement
+          receivables = receivables.map(r => {
+            const m = (r.settlements || []).find(x => Math.round(x.amount) === Math.round(t.amount));
+            if (!m) return r;
+            return { ...r, owed: r.owed + t.amount, settled: false, settlements: r.settlements.filter(x => x !== m) };
+          });
+        }
+      }
+      return { transactions: s.transactions.filter(x => x.id !== id), receivables };
+    }),
     removeDuplicates: () => patch(s => {
       // exact duplicates: same date + type + amount + merchant (first kept)
       const seen = new Set(); const keep = [];
@@ -292,6 +307,37 @@ function App({ cloudOn, user }) {
       return { transactions: txns };
     }),
     saveBrief: (brief) => patch({ brief }),
+    // fixed expenses + income assets
+    setFixedExpenses: (list) => patch({ fixedExpenses: list }),
+    setIncomeAssets: (list) => patch({ incomeAssets: list }),
+    setCriticView: (v) => patch({ criticView: v }),
+    // reconcile a bank account: user enters the true balance; re-anchor so drift resets
+    reconcileAccount: (id, trueBalance) => patch(s => ({
+      accounts: s.accounts.map(a => a.id !== id ? a : { ...a, balance: trueBalance, balanceAnchor: trueBalance, anchorDate: FT.todayISO() }),
+    })),
+    // reconcile a card's available limit from an email figure (or manual)
+    reconcileCard: (id, availLimit) => patch(s => ({
+      cards: s.cards.map(c => c.id !== id ? c : { ...c, availAnchor: availLimit, availAnchorDate: FT.todayISO() }),
+    })),
+    // auto-suggest recurring expenses from history (same merchant+~amount ≥3 months)
+    suggestFixedFromHistory: (s) => {
+      const byKey = {};
+      (s.transactions || []).filter(t => t.type === "expense").forEach(t => {
+        const k = (t.merchant || "").toLowerCase().trim() + "|" + Math.round((t.amount || 0) / 500) * 500;
+        (byKey[k] = byKey[k] || []).push(t);
+      });
+      const existing = new Set((s.fixedExpenses || []).map(f => (f.label || "").toLowerCase()));
+      const suggestions = [];
+      Object.values(byKey).forEach(group => {
+        const months = new Set(group.map(t => t.date.slice(0, 7)));
+        if (months.size >= 3 && !existing.has((group[0].merchant || "").toLowerCase())) {
+          const amt = Math.round(group.reduce((a, t) => a + t.amount, 0) / group.length);
+          suggestions.push({ id: FT.uid(), label: group[0].merchant, amount: amt, currency: group[0].currency || "INR", dueDay: +group[0].date.slice(8, 10) || 1, category: group[0].category });
+        }
+      });
+      return suggestions;
+    },
+    addFixedExpenses: (items) => patch(s => ({ fixedExpenses: [...(s.fixedExpenses || []), ...items] })),
     setNotify: (n) => patch(s => ({ notify: { ...s.notify, ...n } })),
     setGmail: (g) => patch(s => ({ gmail: { ...s.gmail, ...g } })),
     genIngestToken: () => patch(s => ({ gmail: { ...s.gmail, token: "ft_" + FT.uid() + FT.uid() } })),
@@ -312,7 +358,7 @@ function App({ cloudOn, user }) {
     },
   }), []);
 
-  const meta = NAV.find(n => n.id === route);
+  const meta = NAV.find(n => n.id === route) || NAV[0];
 
   // onboarding gate
   if (!state.onboarded) {
@@ -329,12 +375,8 @@ function App({ cloudOn, user }) {
           <div className="brand-mark"><Icon name="wallet" size={19} style={{ color: "#fff" }} /></div>
           <div className="brand-text"><div className="brand-name">Finance Tracker</div><div className="brand-sub">{state.profile.name}</div></div>
         </div>
-        <div className="nav-label">Overview</div>
-        {NAV.slice(0, 7).map(n => (
-          <button key={n.id} className={"nav-item" + (route === n.id ? " active" : "")} onClick={() => setRoute(n.id)}><Icon name={n.icon} />{n.label}</button>
-        ))}
-        <div className="nav-label">Tools</div>
-        {NAV.slice(7).map(n => (
+        <div className="nav-label">Menu</div>
+        {NAV.map(n => (
           <button key={n.id} className={"nav-item" + (route === n.id ? " active" : "")} onClick={() => setRoute(n.id)}><Icon name={n.icon} />{n.label}</button>
         ))}
         <div className="nav-spacer"></div>
@@ -369,19 +411,17 @@ function App({ cloudOn, user }) {
         </div>
         <div className="content">
           {route === "dashboard" && <Dashboard state={state} actions={actions} go={setRoute} openAdd={() => setShowAdd(true)} />}
-          {route === "transactions" && <Transactions state={state} actions={actions} />}
-          {route === "networth" && <NetWorth state={state} actions={actions} />}
+          {route === "money" && <MoneyHub state={state} actions={actions} />}
+          {route === "accounts" && <AccountsHub state={state} actions={actions} />}
           {route === "cards" && <CardsView state={state} actions={actions} />}
-          {route === "investments" && <Investments state={state} actions={actions} openProfile={() => setShowProfile(true)} />}
-          {route === "insights" && <Insights state={state} actions={actions} />}
-          {route === "chat" && <ChatView state={state} actions={actions} />}
-          {route === "import" && <ImportView state={state} actions={actions} />}
+          {route === "loans" && <LoansHub state={state} actions={actions} />}
+          {route === "grow" && <GrowHub state={state} actions={actions} openProfile={() => setShowProfile(true)} />}
           {route === "settings" && <Settings state={state} actions={actions} cloud={{ on: cloudOn, user, sync, signOut: actions.signOut }} />}
         </div>
       </main>
 
       <nav className="mobile-nav">
-        {NAV.filter(n => n.id !== "settings").map(n => (
+        {NAV.map(n => (
           <button key={n.id} className={route === n.id ? "active" : ""} onClick={() => setRoute(n.id)}>
             <Icon name={n.icon} />{n.label.split(" ")[0]}
           </button>

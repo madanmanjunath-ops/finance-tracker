@@ -163,6 +163,9 @@
       riskPosture: "auto",    // auto | Conservative | Balanced | Aggressive
       receivables: [],        // money owed to you from split bills [{id, label, total, yourShare, owed, settled, date, txnId, settlements:[]}]
       brief: null,            // cached daily brief {date, items:[...], aiNote}
+      fixedExpenses: [],      // [{id,label,amount,currency,dueDay,category}] recurring commitments
+      incomeAssets: [],       // [{id,label,principal,rate,currency}] FDs/deposits yielding interest
+      criticView: "itr",      // critic income benchmark: allindia|itr|global
       notify: { email: "", time: "07:15", tz: "Asia/Kolkata", enabled: false },
       gmail: { connected: false, autoThreshold: 85 }, // auto-book if confidence >=
       profile: {
@@ -191,6 +194,14 @@
     if (!s.riskPosture) s.riskPosture = "auto";
     if (!s.receivables) s.receivables = [];
     if (s.brief === undefined) s.brief = null;
+    if (!s.fixedExpenses) s.fixedExpenses = [];
+    if (!s.incomeAssets) s.incomeAssets = [];
+    if (!s.criticView) s.criticView = "itr";
+    // credit-limit anchoring: each card tracks an available-limit anchor that
+    // bank emails refresh; between emails the app derives from spends since.
+    (s.cards || []).forEach(c => {
+      if (c.availAnchor === undefined && c.limit) { c.availAnchor = c.limit - (c.balance || 0); c.availAnchorDate = c.availAnchorDate || FT.todayISO(); }
+    });
     // one-time: record a balance anchor so derived balances have a baseline
     (s.accounts || []).forEach(a => { if (a.balanceAnchor === undefined) { a.balanceAnchor = a.balance || 0; a.anchorDate = a.anchorDate || FT.todayISO(); } });
     if (!s.notify) s.notify = { email: "", time: "07:15", tz: "Asia/Kolkata", enabled: false };
@@ -296,6 +307,35 @@
     const merch = String(t.merchant || "").toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 14);
     return [t.date, t.type, Math.round(Math.abs(+t.amount) || 0), merch].join("|");
   }
+  // ── Financial critic benchmarks (annual income, INR) ──────────────────
+  // Sourced 2025-26: ITR-filer thresholds from CBDT FY2025-26 (8.22cr filers);
+  // all-India from PLFS/World Inequality Lab; global from WID PPP estimates.
+  // These are reference anchors the app computes against — not the AI's guesses.
+  const BENCHMARKS = {
+    itr:      { label: "Indian tax filers", note: "8.22cr ITR filers (CBDT FY25-26)", p: [[1, 7150000], [5, 4200000], [10, 3100000], [20, 1000000], [50, 600000]] },
+    allindia: { label: "All Indians", note: "PLFS / World Inequality Lab", p: [[1, 2200000], [5, 1400000], [10, 960000], [20, 500000], [50, 250000]] },
+    global:   { label: "Global", note: "WID PPP-adjusted", p: [[1, 5300000], [5, 3000000], [10, 1700000], [20, 900000], [50, 400000]] },
+  };
+  // Age-based wealth multiples (× annual income unless noted) — from common
+  // planning frameworks aggregated in 2025 sources.
+  const WEALTH_MULT = [[25, 1], [30, 2.5], [35, 4.5], [40, 7], [45, 10], [50, 13], [55, 18], [60, 22], [70, 27]];
+
+  function incomePercentile(annualIncome, view) {
+    const b = BENCHMARKS[view] || BENCHMARKS.itr;
+    // find the best (lowest) top-X% the income clears
+    let best = null;
+    for (const [pct, thresh] of b.p) { if (annualIncome >= thresh) { best = pct; break; } }
+    return { topPct: best, label: b.label, note: b.note, table: b.p };
+  }
+  function wealthTarget(age) {
+    let lo = WEALTH_MULT[0], hi = WEALTH_MULT[WEALTH_MULT.length - 1];
+    for (let i = 0; i < WEALTH_MULT.length - 1; i++) {
+      if (age >= WEALTH_MULT[i][0] && age <= WEALTH_MULT[i + 1][0]) { lo = WEALTH_MULT[i]; hi = WEALTH_MULT[i + 1]; break; }
+    }
+    const t = hi[0] === lo[0] ? lo[1] : lo[1] + (hi[1] - lo[1]) * (age - lo[0]) / (hi[0] - lo[0]);
+    return Math.round(t * 10) / 10;
+  }
+
   function currentQuarter(d) {
     const dt = d ? new Date(d) : new Date();
     return "Q" + (Math.floor(dt.getMonth() / 3) + 1) + " " + dt.getFullYear();
@@ -379,7 +419,7 @@
     CARD_DB, CARD_MAP, CUR, DEFAULT_FX,
     uid, todayISO, daysAgo, monthsAgo, load, save, reset, defaultState, migrate,
     fmt, fmtShort, relDate, monthLabel, daysUntil, floatDays, rewardRate,
-    ownAccountHints, looksLikeTransfer, txnKey, TRANSFER_CAT, applyRenames, currentQuarter, parseAIJson, payTargets, payTargetName, extractVPA,
+    ownAccountHints, looksLikeTransfer, txnKey, TRANSFER_CAT, applyRenames, currentQuarter, parseAIJson, payTargets, payTargetName, extractVPA, incomePercentile, wealthTarget, BENCHMARKS,
     annualYield: (a) => (a.rate ? (a.balance || 0) * a.rate / 100 : 0),
     fdMaturityDays: (a) => a.maturityDate ? Math.round((new Date(a.maturityDate) - new Date()) / 86400000) : null,
     catOf: (id) => CAT_MAP[id] || { name: "Other", color: "var(--text-3)", emoji: "✦", rew: "general" },

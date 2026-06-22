@@ -39,7 +39,8 @@ function FixUncategorized({ state, actions, onClose }) {
   );
 }
 
-function AddTxnModal({ state, onClose, onSave, editing }) {
+function AddTxnModal({ state, onClose, onSave, editing, onDelete }) {
+  const [confirmDel, setConfirmDel] = useState(false);
   const cur = state.displayCurrency;
   const [type, setType] = useState(editing ? editing.type : "expense");
   const [amount, setAmount] = useState(editing ? String(editing.amount) : "");
@@ -89,6 +90,11 @@ function AddTxnModal({ state, onClose, onSave, editing }) {
   return (
     <Modal title={editing ? "Edit transaction" : "Add transaction"} onClose={onClose}
       foot={<>
+        {editing && onDelete && (
+          <button className="btn btn-ghost" style={{ color: "var(--neg)", marginRight: "auto" }} onClick={() => { if (confirmDel) { onDelete(editing.id); } else setConfirmDel(true); }}>
+            <Icon name="trash" size={15} />{confirmDel ? "Tap again to delete" : "Delete"}
+          </button>
+        )}
         <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
         <button className="btn btn-primary" onClick={submit}><Icon name="check" size={16} />{editing ? "Save changes" : "Add transaction"}</button>
       </>}>
@@ -375,7 +381,7 @@ function Transactions({ state, actions }) {
         </div>
       </div>
 
-      {editing && <AddTxnModal state={state} editing={editing} onClose={() => setEditing(null)} onSave={(t) => { actions.updateTxn(t); setEditing(null); }} />}
+      {editing && <AddTxnModal state={state} editing={editing} onClose={() => setEditing(null)} onSave={(t) => { actions.updateTxn(t); setEditing(null); }} onDelete={(id) => { actions.deleteTxn(id); setEditing(null); }} />}
       {showBudget && <BudgetModal state={state} onClose={() => setShowBudget(false)} onSave={(b) => { actions.setBudgets(b); setShowBudget(false); }} />}
       {showFix && <FixUncategorized state={state} actions={actions} onClose={() => setShowFix(false)} />}
     </div>

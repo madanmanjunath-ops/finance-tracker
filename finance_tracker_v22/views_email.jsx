@@ -78,7 +78,7 @@ If it announces a bill or payment DUE IN THE FUTURE (bill generated, statement w
 {"kind":"bill","amount":<the amount due>,"currency":"INR"|"USD"|"EUR"|"GBP","merchant":"<biller name>","dueDate":"YYYY-MM-DD","category":"<one id>","confidence":"high"|"medium"|"low"}
 For a credit-card statement use the TOTAL amount due and category "cardpay"; utilities/phone/internet "bills"; insurance "health" or "bills"; rent "rent"; loan EMI "emi"; subscriptions "subs".
 
-"merchant" must be a SHORT, human-friendly label a person instantly recognizes — the brand, payee, or purpose. NEVER raw bank names, reference numbers, or codes. Examples: "Swiggy", "House rent", "Skoda car EMI", "Salary". For a credit-card bill payment, name it "<card name> bill" using the user's card list.
+CRITICAL: merchant is the OTHER party (who you paid or who paid you), NOT the bank/app that sent the alert. Ignore the sender/From line; look in the body for "paid to", "to VPA", "at <merchant>", "received from", or the UPI handle. "merchant" must be a SHORT, human-friendly label a person instantly recognizes — the brand, payee, or purpose. NEVER raw bank names, reference numbers, or codes. Examples: "Swiggy", "House rent", "Skoda car EMI", "Salary". For a credit-card bill payment, name it "<card name> bill" using the user's card list.
 
 Valid category ids: ${catList}
 

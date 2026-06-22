@@ -324,7 +324,7 @@ ${raw.slice(0, 40).map(m => "- " + m).join("\n")}`;
             <button className="btn btn-ghost" onClick={() => setProps(null)}>Cancel</button>
             <button className="btn btn-primary" onClick={applyProposals} disabled={!props_.some(p => p.include)}><Icon name="check" size={15} />Create rules & rename existing</button>
           </>}>
-          <div className="modal-body" style={{ gap: 0 }}>
+          <div className="modal-body" style={{ gap: 0, overflowY: "auto", flex: 1, minHeight: 0 }}>
             <div style={{ fontSize: 12.5, color: "var(--text-2)", marginBottom: 10 }}>Untick anything wrong; edit names freely. These become rules, so future imports are renamed automatically.</div>
             <div>
               {props_.map(p => (

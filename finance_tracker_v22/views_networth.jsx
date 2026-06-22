@@ -17,7 +17,7 @@ function AccountModal({ state, onClose, onSave, editing }) {
       foot={<>
         {editing && <button className="btn btn-ghost" style={{ color: "var(--neg)", marginRight: "auto" }} onClick={() => onSave(null, editing.id)}><Icon name="trash" size={15} />Delete</button>}
         <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
-        <button className="btn btn-primary" onClick={() => { if (!name.trim()) return; onSave({ id: editing ? editing.id : "acc_" + FT.uid(), name: name.trim(), type, currency, balance: +balance || 0, color, rate: yields ? (+rate || 0) : undefined, payout: yields ? payout : undefined, maturityDate: (type === "fd" || type === "bond") ? (maturityDate || undefined) : undefined }); }}><Icon name="check" size={16} />Save</button>
+        <button className="btn btn-primary" onClick={() => { if (!name.trim()) return; const bal = +balance || 0; onSave({ id: editing ? editing.id : "acc_" + FT.uid(), name: name.trim(), type, currency, balance: bal, balanceAnchor: bal, anchorDate: FT.todayISO(), color, rate: yields ? (+rate || 0) : undefined, payout: yields ? payout : undefined, maturityDate: (type === "fd" || type === "bond") ? (maturityDate || undefined) : undefined }); }}><Icon name="check" size={16} />Save</button>
       </>}>
       <div className="modal-body">
         <div className="field"><label className="label">Account name</label><input className="input" placeholder={type === "fd" ? "e.g. HDFC FD 7.1%" : "e.g. HDFC Savings"} value={name} onChange={e => setName(e.target.value)} autoFocus /></div>

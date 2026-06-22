@@ -1,7 +1,7 @@
 # Netlify configuration for Finance Tracker
 
 [build]
-  # No build step — these are plain static files. Just publish the root.
+  # Files sit at the repo root. No build step — plain static files.
   publish = "."
   functions = "netlify/functions"
 
@@ -20,3 +20,17 @@
 # Daily snapshot email — 01:45 UTC = 07:15 AM IST.
 [functions."daily-email"]
   schedule = "45 1 * * *"
+
+# Service worker must be served from root scope and never long-cached,
+# so new versions are picked up promptly.
+[[headers]]
+  for = "/sw.js"
+  [headers.values]
+    Cache-Control = "no-cache"
+    Service-Worker-Allowed = "/"
+
+[[headers]]
+  for = "/manifest.webmanifest"
+  [headers.values]
+    Content-Type = "application/manifest+json"
+

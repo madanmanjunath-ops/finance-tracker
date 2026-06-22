@@ -40,7 +40,18 @@ function snapshot(data) {
     const rate = (c.base != null ? c.base : 1);
     if (util < 0.85 && (!best || rate > best.rate)) best = { name: c.name, rate };
   });
-  return { cur, assets, liab, net: assets - liab, inc, exp, savRate: inc ? Math.round((1 - exp / inc) * 100) : 0, dues: dues.slice(0, 5), best };
+  // per-account balances (assets only) + liquid breakdown
+  const acctRows = []; let liqCash = 0, liqFd = 0;
+  (data.accounts || []).forEach(a => {
+    const t = (a.type || "").toLowerCase();
+    if (t === "loan") return;
+    const v = conv(a.balance || 0, a.currency, fx, cur);
+    acctRows.push({ name: a.name, value: v });
+    if (["bank", "cash", "current", "savings"].includes(t)) liqCash += v;
+    else if (["fd", "rd", "liquid"].includes(t)) liqFd += v;
+  });
+  const liquid = { cash: liqCash, fd: liqFd, total: liqCash + liqFd };
+  return { cur, assets, liab, net: assets - liab, inc, exp, savRate: inc ? Math.round((1 - exp / inc) * 100) : 0, dues: dues.slice(0, 5), best, accounts: acctRows, liquid };
 }
 
 async function aiTip(s) {
@@ -60,12 +71,11 @@ function html(name, s, tip) {
   <div style="background:#0a7d56;padding:22px 24px;color:#fff"><div style="font-size:13px;opacity:.85">Good morning${name ? ", " + name : ""} 👋</div><div style="font-size:22px;font-weight:700;margin-top:4px">Your money this morning</div></div>
   <div style="padding:22px 24px">
     <div style="font-size:12px;color:#8a958d;text-transform:uppercase;letter-spacing:.05em;font-weight:700">Net worth</div>
-    <div style="font-size:32px;font-weight:800;color:#16202c;margin:4px 0 16px">${fmt(s.net, s.cur)}</div>
-    <table style="width:100%;border-collapse:collapse;border-top:1px solid #eef1ee">
-      ${row("Assets", fmt(s.assets, s.cur), "#0a7d56")}
-      ${row("Liabilities", "−" + fmt(s.liab, s.cur), "#c8474f")}
-      ${row("Income (this month)", fmt(s.inc, s.cur), "#0a7d56")}
-      ${row("Spent (this month)", fmt(s.exp, s.cur), "#c8474f")}
+    <div style="font-size:32px;font-weight:800;color:#16202c;margin:4px 0 4px">${fmt(s.net, s.cur)}</div>
+    <div style="font-size:13px;color:#0a7d56;font-weight:700;margin-bottom:16px">${fmt(s.liquid.total, s.cur)} liquid · ${fmt(s.liquid.cash, s.cur)} cash + ${fmt(s.liquid.fd, s.cur)} FD</div>
+    ${s.accounts.length ? `<table style="width:100%;border-collapse:collapse;border-top:1px solid #eef1ee">${s.accounts.map(a => row(a.name, fmt(a.value, s.cur))).join("")}</table>` : ""}
+    <table style="width:100%;border-collapse:collapse;border-top:1px solid #eef1ee;margin-top:4px">
+      ${row("Spent (this month)", "−" + fmt(s.exp, s.cur), "#c8474f")}
       ${row("Savings rate", s.savRate + "%")}
     </table>
     ${s.best ? `<div style="margin-top:16px;background:#f1f8f4;border-radius:12px;padding:12px 14px"><div style="font-size:12px;color:#0a7d56;font-weight:700">💳 Best card to use today</div><div style="font-size:15px;font-weight:700;margin-top:2px">${s.best.name}</div></div>` : ""}
