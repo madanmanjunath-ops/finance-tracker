@@ -14,7 +14,8 @@ function FinancialCritic({ state, actions }) {
 
   const m = useMemo(() => {
     const p = state.profile || {};
-    const a = window.buildAdvice ? window.buildAdvice(state) : null;
+    let a = null;
+    try { a = window.buildAdvice ? window.buildAdvice(state) : null; } catch (e) { a = null; }
     // robust monthly expense: use 3-mo avg, but fall back to all-time avg if thin
     let monthlyExp = a ? a.avgExp : 0;
     if (!monthlyExp || monthlyExp < 1) {
@@ -25,7 +26,8 @@ function FinancialCritic({ state, actions }) {
         monthlyExp = totalExp / Math.max(1, months.size);
       }
     }
-    const dm = window.debtMetrics ? window.debtMetrics(state) : null;
+    let dm = null;
+    try { dm = window.debtMetrics ? window.debtMetrics(state) : null; } catch (e) { dm = null; }
     const annualIncome = a ? a.avgInc * 12 : 0;
     const pct = FT.incomePercentile(annualIncome, view);
     const nw = Compute.netWorth(state);

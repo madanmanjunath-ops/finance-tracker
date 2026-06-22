@@ -6,31 +6,31 @@
   <title>Finance Tracker</title>
 
   <!-- PWA: installable, theme + iOS home-screen support -->
-  <link rel="manifest" href="manifest.webmanifest?v=29" />
+  <link rel="manifest" href="manifest.webmanifest?v=30" />
   <meta name="theme-color" content="#0a5f46" media="(prefers-color-scheme: light)" />
   <meta name="theme-color" content="#0c0f0e" media="(prefers-color-scheme: dark)" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="Finance" />
-  <link rel="apple-touch-icon" href="apple-touch-icon.png?v=29" />
-  <link rel="icon" type="image/png" href="icon-192.png?v=29" />
+  <link rel="apple-touch-icon" href="apple-touch-icon.png?v=30" />
+  <link rel="icon" type="image/png" href="icon-192.png?v=30" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Source+Serif+4:opsz,wght@8..60,400;8..60,500;8..60,600;8..60,700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="styles.css?v=29" />
+  <link rel="stylesheet" href="styles.css?v=30" />
 </head>
 <body>
   <div id="root"></div>
 
   <!-- data layer (plain JS, must load first) -->
-  <script src="store.js?v=29"></script>
+  <script src="store.js?v=30"></script>
   <!-- AI shim: no-op in the studio, calls your serverless proxy in production -->
-  <script src="ai.js?v=29"></script>
+  <script src="ai.js?v=30"></script>
   <!-- Supabase SDK + cloud sync (no-op until you fill in supabase-config.js) -->
   <script src="https://unpkg.com/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
-  <script src="supabase-config.js?v=29"></script>
-  <script src="cloud.js?v=29"></script>
+  <script src="supabase-config.js?v=30"></script>
+  <script src="cloud.js?v=30"></script>
   <!-- Spreadsheet + PDF parsing for statement imports -->
   <script src="https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
@@ -41,23 +41,23 @@
   <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
 
   <!-- app modules -->
-  <script type="text/babel" src="lib.jsx?v=29"></script>
-  <script type="text/babel" src="compute.jsx?v=29"></script>
-  <script type="text/babel" src="views_auth.jsx?v=29"></script>
-  <script type="text/babel" src="views_onboarding.jsx?v=29"></script>
-  <script type="text/babel" src="views_critic.jsx?v=29"></script>
-  <script type="text/babel" src="views_dashboard.jsx?v=29"></script>
-  <script type="text/babel" src="views_txns.jsx?v=29"></script>
-  <script type="text/babel" src="views_networth.jsx?v=29"></script>
-  <script type="text/babel" src="views_cards.jsx?v=29"></script>
-  <script type="text/babel" src="views_investments.jsx?v=29"></script>
-  <script type="text/babel" src="views_insights.jsx?v=29"></script>
-  <script type="text/babel" src="views_chat.jsx?v=29"></script>
-  <script type="text/babel" src="views_email.jsx?v=29"></script>
-  <script type="text/babel" src="view_import.jsx?v=29"></script>
-  <script type="text/babel" src="views_settings.jsx?v=29"></script>
-  <script type="text/babel" src="views_hubs.jsx?v=29"></script>
-  <script type="text/babel" src="app.jsx?v=29"></script>
+  <script type="text/babel" src="lib.jsx?v=30"></script>
+  <script type="text/babel" src="compute.jsx?v=30"></script>
+  <script type="text/babel" src="views_auth.jsx?v=30"></script>
+  <script type="text/babel" src="views_onboarding.jsx?v=30"></script>
+  <script type="text/babel" src="views_critic.jsx?v=30"></script>
+  <script type="text/babel" src="views_dashboard.jsx?v=30"></script>
+  <script type="text/babel" src="views_txns.jsx?v=30"></script>
+  <script type="text/babel" src="views_networth.jsx?v=30"></script>
+  <script type="text/babel" src="views_cards.jsx?v=30"></script>
+  <script type="text/babel" src="views_investments.jsx?v=30"></script>
+  <script type="text/babel" src="views_insights.jsx?v=30"></script>
+  <script type="text/babel" src="views_chat.jsx?v=30"></script>
+  <script type="text/babel" src="views_email.jsx?v=30"></script>
+  <script type="text/babel" src="view_import.jsx?v=30"></script>
+  <script type="text/babel" src="views_settings.jsx?v=30"></script>
+  <script type="text/babel" src="views_hubs.jsx?v=30"></script>
+  <script type="text/babel" src="app.jsx?v=30"></script>
 
   <!-- PWA: register the service worker (offline + installable). Ignored on http; needs https, which Netlify provides. -->
   <script>

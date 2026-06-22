@@ -168,9 +168,10 @@ ${buildSnapshot(state)}${prevCtx}`;
 }
 
 function buildAdvice(state) {
-  const p = state.profile;
+  const p = state.profile || {};
   const cur = state.displayCurrency;
   const age = p.age || 30;
+  const risk = p.risk || "Moderate";
   const series = Compute.monthlySeries(state, 6);
   const avgInc = Math.round(series.reduce((s, m) => s + m.income, 0) / series.length) || p.monthlyIncome || 0;
   const avgExp = Math.round(series.reduce((s, m) => s + m.expense, 0) / series.length);
@@ -184,9 +185,9 @@ function buildAdvice(state) {
   const emFundPct = emFundTarget ? Math.min(100, (liquid / emFundTarget) * 100) : 0;
 
   // allocation: rule of thumb equity = 110 - age, tuned by risk
-  const riskAdj = { Conservative: -12, Moderate: 0, Aggressive: 12 }[p.risk] ?? 0;
+  const riskAdj = { Conservative: -12, Moderate: 0, Aggressive: 12 }[risk] ?? 0;
   let equity = Math.max(25, Math.min(85, (110 - age) + riskAdj));
-  let gold = p.risk === "Aggressive" ? 5 : 10;
+  let gold = risk === "Aggressive" ? 5 : 10;
   let debt = 100 - equity - gold;
   const alloc = [
     { label: "Equity (Stocks + MF)", value: equity, color: "var(--c1)" },
@@ -224,7 +225,7 @@ function buildAdvice(state) {
     body: `ELSS funds (3-yr lock-in) and your EPF/PPF can shelter up to ₹1.5L under 80C while compounding. Aggressive savers should prioritise ELSS for the equity tilt.`, stat: "Up to ₹1.5L deductible" });
   if (equity >= 60) {
     sug.push({ p: 3, icon: "sparkles", color: "var(--c10)", title: "You can afford an equity tilt",
-      body: `At ${p.age} with a ${p.risk.toLowerCase()} profile, a ${equity}% equity allocation suits your long horizon. Favour broad index funds (Nifty 50 / Nifty Next 50) as the core and satellite into flexi-cap.`, stat: equity + "% equity recommended" });
+      body: `At ${p.age} with a ${risk.toLowerCase()} profile, a ${equity}% equity allocation suits your long horizon. Favour broad index funds (Nifty 50 / Nifty Next 50) as the core and satellite into flexi-cap.`, stat: equity + "% equity recommended" });
   }
   if (p.maritalStatus === "Married") {
     sug.push({ p: 3, icon: "target", color: "var(--c3)", title: "Plan joint goals together",
@@ -292,7 +293,7 @@ function Investments({ state, actions, openProfile }) {
       {/* allocation + suggestions */}
       <div className="grid" style={{ gridTemplateColumns: "1fr 1.7fr" }}>
         <div className="card card-pad fade-in" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          <div><div className="card-title">Suggested allocation</div><div className="card-sub">For a {p.risk.toLowerCase()} investor, age {p.age}</div></div>
+          <div><div className="card-title">Suggested allocation</div><div className="card-sub">For a {(p.risk || "Moderate").toLowerCase()} investor, age {p.age}</div></div>
           <div style={{ display: "grid", placeItems: "center" }}>
             <Donut data={a.alloc} size={170} thickness={24} center={<div><div style={{ fontSize: 10.5, color: "var(--text-3)", fontWeight: 700 }}>Equity</div><div className="display" style={{ fontSize: 22, fontWeight: 600 }}>{a.equity}%</div></div>} />
           </div>
