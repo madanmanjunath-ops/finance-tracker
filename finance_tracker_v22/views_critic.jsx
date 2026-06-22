@@ -83,6 +83,9 @@ function FinancialCritic({ state, actions }) {
         <Stat label="Net worth vs age" big={m.targetNW ? (m.nw.net / m.targetNW * 100).toFixed(0) + "%" : "—"} sub={m.targetNW ? "of " + m.wealthMult + "× target" : "add age in profile"} />
       </div>
       {m._error && <div style={{ padding: "8px 16px", fontSize: 11, color: "var(--neg)", fontWeight: 600 }}>Diagnostic: {m._error}</div>}
+      <div style={{ padding: "6px 16px", fontSize: 10, color: "var(--text-3)", fontFamily: "monospace", wordBreak: "break-all" }}>
+        debug: inc={Math.round(m.annualIncome)} run={m.monthsRunway.toFixed(1)} sav={m.savRate.toFixed(0)} nw={Math.round(m.nw.net)} tgt={m.targetNW ? Math.round(m.targetNW) : "null"} pct={m.pct.topPct || "null"} liq={Math.round(m.liquid.total)} exp={Math.round(m.avgExp)}
+      </div>
 
       <div style={{ padding: "14px 16px", borderTop: "1px solid var(--border-soft)" }}>
         {note ? (
