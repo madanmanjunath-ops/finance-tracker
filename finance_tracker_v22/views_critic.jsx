@@ -15,17 +15,27 @@ function FinancialCritic({ state, actions }) {
   const m = useMemo(() => {
     const p = state.profile || {};
     const a = window.buildAdvice ? window.buildAdvice(state) : null;
+    // robust monthly expense: use 3-mo avg, but fall back to all-time avg if thin
+    let monthlyExp = a ? a.avgExp : 0;
+    if (!monthlyExp || monthlyExp < 1) {
+      const exps = (state.transactions || []).filter(t => t.type === "expense");
+      if (exps.length) {
+        const months = new Set(exps.map(t => t.date.slice(0, 7)));
+        const totalExp = exps.reduce((s, t) => s + Compute.tAmt(t, state), 0);
+        monthlyExp = totalExp / Math.max(1, months.size);
+      }
+    }
     const dm = window.debtMetrics ? window.debtMetrics(state) : null;
     const annualIncome = a ? a.avgInc * 12 : 0;
     const pct = FT.incomePercentile(annualIncome, view);
     const nw = Compute.netWorth(state);
     const liquid = Compute.liquidBreakdown(state);
-    const monthsRunway = a && a.avgExp > 0 ? liquid.total / a.avgExp : 0;
+    const monthsRunway = monthlyExp > 0 ? liquid.total / monthlyExp : 0;
     const wealthMult = p.age ? FT.wealthTarget(p.age) : null;
     const targetNW = wealthMult && annualIncome ? wealthMult * annualIncome : null;
     const dti = annualIncome > 0 && dm ? (dm.totalDebt / annualIncome) : null;
     const savRate = a ? a.savRate : 0;
-    return { annualIncome, pct, nw, liquid, monthsRunway, wealthMult, targetNW, dti, savRate, avgExp: a ? a.avgExp : 0, dm };
+    return { annualIncome, pct, nw, liquid, monthsRunway, wealthMult, targetNW, dti, savRate, avgExp: monthlyExp, dm };
   }, [state, view]);
 
   async function generate() {

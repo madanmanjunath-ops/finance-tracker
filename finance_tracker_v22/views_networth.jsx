@@ -9,6 +9,7 @@ function AccountModal({ state, onClose, onSave, editing }) {
   const [rate, setRate] = useState(editing && editing.rate ? String(editing.rate) : "");
   const [payout, setPayout] = useState(editing && editing.payout ? editing.payout : "cumulative");
   const [maturityDate, setMaturityDate] = useState(editing && editing.maturityDate ? editing.maturityDate : "");
+  const [last4, setLast4] = useState(editing && editing.last4 ? String(editing.last4) : "");
   const palette = ["var(--c1)","var(--c2)","var(--c3)","var(--c4)","var(--c5)","var(--c6)","var(--c7)","var(--c8)","var(--c10)"];
   const [color, setColor] = useState(editing ? editing.color : palette[1]);
   const yields = FT.acctType(type).yields;
@@ -17,7 +18,7 @@ function AccountModal({ state, onClose, onSave, editing }) {
       foot={<>
         {editing && <button className="btn btn-ghost" style={{ color: "var(--neg)", marginRight: "auto" }} onClick={() => onSave(null, editing.id)}><Icon name="trash" size={15} />Delete</button>}
         <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
-        <button className="btn btn-primary" onClick={() => { if (!name.trim()) return; const bal = +balance || 0; onSave({ id: editing ? editing.id : "acc_" + FT.uid(), name: name.trim(), type, currency, balance: bal, balanceAnchor: bal, anchorDate: FT.todayISO(), color, rate: yields ? (+rate || 0) : undefined, payout: yields ? payout : undefined, maturityDate: (type === "fd" || type === "bond") ? (maturityDate || undefined) : undefined }); }}><Icon name="check" size={16} />Save</button>
+        <button className="btn btn-primary" onClick={() => { if (!name.trim()) return; const bal = +balance || 0; onSave({ id: editing ? editing.id : "acc_" + FT.uid(), name: name.trim(), type, currency, balance: bal, balanceAnchor: bal, anchorDate: FT.todayISO(), color, last4: last4.trim() ? last4.trim().slice(-4) : undefined, rate: yields ? (+rate || 0) : undefined, payout: yields ? payout : undefined, maturityDate: (type === "fd" || type === "bond") ? (maturityDate || undefined) : undefined }); }}><Icon name="check" size={16} />Save</button>
       </>}>
       <div className="modal-body">
         <div className="field"><label className="label">Account name</label><input className="input" placeholder={type === "fd" ? "e.g. HDFC FD 7.1%" : "e.g. HDFC Savings"} value={name} onChange={e => setName(e.target.value)} autoFocus /></div>
@@ -28,6 +29,9 @@ function AccountModal({ state, onClose, onSave, editing }) {
           <div className="field" style={{ flex: 2 }}><label className="label">{type === "fd" ? "Principal / current value" : "Current balance"} {!FT.acctType(type).asset && <span style={{ color: "var(--neg)", fontWeight: 600 }}>(owed)</span>}</label><input className="input num" type="number" placeholder="0" value={balance} onChange={e => setBalance(e.target.value)} /></div>
           <div className="field" style={{ flex: 1 }}><label className="label">Currency</label><select className="select" value={currency} onChange={e => setCurrency(e.target.value)}>{Object.keys(FT.CUR).map(c => <option key={c} value={c}>{FT.symOf(c)} {c}</option>)}</select></div>
         </div>
+        {["bank", "cash"].includes(type) && (
+          <div className="field"><label className="label">Last 4 digits <span style={{ color: "var(--text-3)", fontWeight: 500 }}>(for auto-matching Gmail imports, e.g. 3774)</span></label><input className="input num" maxLength={4} placeholder="3774" value={last4} onChange={e => setLast4(e.target.value.replace(/\D/g, ""))} /></div>
+        )}
         {yields && (
           <div className="row" style={{ gap: 12 }}>
             <div className="field" style={{ flex: 1 }}><label className="label">Interest rate (% p.a.)</label><input className="input num" type="number" step="0.05" placeholder="e.g. 7.1" value={rate} onChange={e => setRate(e.target.value)} /></div>

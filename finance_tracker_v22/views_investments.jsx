@@ -54,7 +54,7 @@ function buildSnapshot(state) {
   const cards = (state.cards || []).map(c => `${c.name}: limit ${FT.fmtShort(c.limit || 0, cur)}, outstanding ${FT.fmtShort(c.balance || 0, cur)}, statement day ${c.billingDay || "?"}`).join("; ") || "none";
   const posture = state.riskPosture === "auto" ? (p.risk || "Moderate") + " (auto from profile)" : state.riskPosture;
   return `Profile: age ${p.age || "?"}, ${p.maritalStatus || "?"}, ${p.dependents || 0} dependents. Risk posture: ${posture}.
-Cash flow (3-mo avg): income ${FT.fmt(a.avgInc, cur)}/mo, expenses ${FT.fmt(a.avgExp, cur)}/mo, surplus ${FT.fmt(a.surplus, cur)}/mo, savings rate ${a.savRate.toFixed(0)}%.
+Cash flow (6-mo avg): income ${FT.fmt(a.avgInc, cur)}/mo, expenses ${FT.fmt(a.avgExp, cur)}/mo, surplus ${FT.fmt(a.surplus, cur)}/mo, savings rate ${a.savRate.toFixed(0)}%.
 Net worth: ${FT.fmt(a.nw.net, cur)} (assets ${FT.fmt(a.nw.assets, cur)}, liabilities ${FT.fmt(a.nw.liabilities, cur)}).
 Liquid: ${FT.fmt(a.liquid, cur)} vs 6-month target ${FT.fmt(a.emFundTarget, cur)} (${a.emFundPct.toFixed(0)}%).
 Total debt: ${FT.fmt(dm.totalDebt, cur)}, interest bleed ≈ ${FT.fmt(dm.monthlyInterest, cur)}/mo${dm.missing ? ` (${dm.missing} loan(s) missing rate)` : ""}.
@@ -171,7 +171,7 @@ function buildAdvice(state) {
   const p = state.profile;
   const cur = state.displayCurrency;
   const age = p.age || 30;
-  const series = Compute.monthlySeries(state, 3);
+  const series = Compute.monthlySeries(state, 6);
   const avgInc = Math.round(series.reduce((s, m) => s + m.income, 0) / series.length) || p.monthlyIncome || 0;
   const avgExp = Math.round(series.reduce((s, m) => s + m.expense, 0) / series.length);
   const surplus = avgInc - avgExp;
@@ -218,7 +218,7 @@ function buildAdvice(state) {
       stat: "Target SIP ≈ " + FT.fmt(suggestSip, cur) + "/mo" });
   } else {
     sug.push({ p: 1, icon: "arrowDownRight", color: "var(--c8)", title: "Spending exceeds income",
-      body: `Your 3-month average shows expenses above income. Trim your top discretionary categories before adding new investments.`, stat: FT.fmt(Math.abs(surplus), cur) + "/mo gap" });
+      body: `Your 6-month average shows expenses above income. Trim your top discretionary categories before adding new investments.`, stat: FT.fmt(Math.abs(surplus), cur) + "/mo gap" });
   }
   sug.push({ p: 2, icon: "briefcase", color: "var(--c5)", title: "Use your 80C / tax-saving headroom",
     body: `ELSS funds (3-yr lock-in) and your EPF/PPF can shelter up to ₹1.5L under 80C while compounding. Aggressive savers should prioritise ELSS for the equity tilt.`, stat: "Up to ₹1.5L deductible" });

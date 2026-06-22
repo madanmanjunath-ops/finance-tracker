@@ -66,13 +66,14 @@ function AddTxnModal({ state, onClose, onSave, editing, onDelete }) {
   function submit() {
     const amt = parseFloat(amount);
     if (!amt || amt <= 0) return;
-    if (split && !editing && type === "expense" && computedShare < amt) {
+    if (split && type === "expense" && computedShare < amt) {
       onSave({
         __split: true,
+        replaceId: editing ? editing.id : null,  // when editing, the original is replaced by the split
         total: Math.round(amt * 100) / 100,
         yourShare: Math.round(computedShare * 100) / 100,
         label: merchant.trim() || "Split expense",
-        txn: { type: "expense", currency, merchant: merchant.trim() || "Split expense", category, account, date, note: note.trim(), source: "manual" },
+        txn: { type: "expense", currency, merchant: merchant.trim() || "Split expense", category, account, date, note: note.trim(), source: editing ? editing.source : "manual" },
       });
       return;
     }
@@ -156,7 +157,7 @@ function AddTxnModal({ state, onClose, onSave, editing, onDelete }) {
                 ))}
               </div>
             </div>
-            {type === "expense" && !editing && (
+            {type === "expense" && (!editing || !editing.splitId) && (
               <div className="field">
                 <label className="label" style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
                   <input type="checkbox" checked={split} onChange={e => setSplit(e.target.checked)} style={{ width: 16, height: 16 }} />
@@ -243,7 +244,10 @@ function Transactions({ state, actions }) {
   const [q, setQ] = useState("");
   const [typeF, setTypeF] = useState("all");
   const [catF, setCatF] = useState("all");
-  const [monthF, setMonthF] = useState("all");
+  const [monthF, setMonthF] = useState(() => {
+    const cm = new Date().toISOString().slice(0, 7);
+    return (state.transactions || []).some(t => t.date.slice(0, 7) === cm) ? cm : "all";
+  });
   const [editing, setEditing] = useState(null);
   const [showBudget, setShowBudget] = useState(false);
   const [showFix, setShowFix] = useState(false);
@@ -311,10 +315,18 @@ function Transactions({ state, actions }) {
             <option value="all">All categories</option>
             {allCats.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
-          <select className="select" style={{ width: "auto" }} value={monthF} onChange={e => setMonthF(e.target.value)}>
-            <option value="all">All months</option>
-            {months.map(m => <option key={m} value={m}>{new Date(m + "-01").toLocaleDateString("en-US", { month: "long", year: "numeric" })}</option>)}
-          </select>
+          <div style={{ display: "flex", alignItems: "center", gap: 0, border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", overflow: "hidden" }}>
+            <button className="btn btn-icon btn-ghost" style={{ width: 30, height: 32, borderRadius: 0 }} title="Previous month" disabled={monthF === "all"} onClick={() => {
+              const idx = months.indexOf(monthF); if (idx >= 0 && idx < months.length - 1) setMonthF(months[idx + 1]);
+            }}><Icon name="chevronLeft" size={15} /></button>
+            <select className="select" style={{ width: "auto", border: "none", borderRadius: 0, minWidth: 130 }} value={monthF} onChange={e => setMonthF(e.target.value)}>
+              <option value="all">All months</option>
+              {months.map(m => <option key={m} value={m}>{new Date(m + "-01").toLocaleDateString("en-US", { month: "long", year: "numeric" })}</option>)}
+            </select>
+            <button className="btn btn-icon btn-ghost" style={{ width: 30, height: 32, borderRadius: 0 }} title="Next month" disabled={monthF === "all"} onClick={() => {
+              const idx = months.indexOf(monthF); if (idx > 0) setMonthF(months[idx - 1]);
+            }}><Icon name="chevronRight" size={15} /></button>
+          </div>
           {uncatCount > 0 && <button className="btn btn-sm" onClick={() => setShowFix(true)} style={{ marginLeft: "auto", color: "var(--warn)" }}><Icon name="wand" size={15} />Fix {uncatCount} uncategorized</button>}
           <button className="btn btn-sm" onClick={() => setShowBudget(true)} style={{ marginLeft: uncatCount > 0 ? 0 : "auto" }}><Icon name="target" size={15} />Budgets</button>
         </div>
@@ -381,7 +393,7 @@ function Transactions({ state, actions }) {
         </div>
       </div>
 
-      {editing && <AddTxnModal state={state} editing={editing} onClose={() => setEditing(null)} onSave={(t) => { actions.updateTxn(t); setEditing(null); }} onDelete={(id) => { actions.deleteTxn(id); setEditing(null); }} />}
+      {editing && <AddTxnModal state={state} editing={editing} onClose={() => setEditing(null)} onSave={(t) => { if (t && t.__split) actions.addSplitExpense(t); else actions.updateTxn(t); setEditing(null); }} onDelete={(id) => { actions.deleteTxn(id); setEditing(null); }} />}
       {showBudget && <BudgetModal state={state} onClose={() => setShowBudget(false)} onSave={(b) => { actions.setBudgets(b); setShowBudget(false); }} />}
       {showFix && <FixUncategorized state={state} actions={actions} onClose={() => setShowFix(false)} />}
     </div>

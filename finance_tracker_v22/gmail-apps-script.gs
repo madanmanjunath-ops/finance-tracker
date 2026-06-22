@@ -73,13 +73,16 @@ function run(query) {
       var id = msg.getId();
       if (seen[id]) continue;
       var body = msg.getPlainBody();
-      var text = "Subject: " + msg.getSubject() + "\nFrom: " + msg.getFrom() + "\n\n" + body;
+      // NOTE: we deliberately do NOT prepend "From: <sender>" to the text — the
+      // bank's name in the From line was anchoring the AI to pick the bank as the
+      // merchant instead of the actual payee in the body. Send subject + body only.
+      var text = "Subject: " + msg.getSubject() + "\n\n" + body;
       try {
         var res = UrlFetchApp.fetch(WEBHOOK_URL, {
           method: "post",
           contentType: "application/json",
           muteHttpExceptions: true,
-          payload: JSON.stringify({ token: INGEST_TOKEN, text: text.slice(0, 4000) }),
+          payload: JSON.stringify({ token: INGEST_TOKEN, text: text.slice(0, 4000), sender: msg.getFrom() }),
         });
         Logger.log(msg.getSubject() + " → " + res.getResponseCode() + " " + res.getContentText());
         seen[id] = Date.now();

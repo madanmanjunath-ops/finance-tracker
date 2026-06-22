@@ -191,121 +191,78 @@ function OwedModal({ state, actions, onClose }) {
 function buildBriefItems(state) {
   const cur = state.displayCurrency;
   const items = [];
-  const today = new Date(); const todayISO = FT.todayISO();
+  const today = new Date();
 
-  // 1) best card to use — highest reward on everyday spend, tie-broken by float
+  // 1) credit-card payment due TODAY or TOMORROW only (no other timeframe)
+  (state.cards || []).forEach(c => {
+    const d = FT.daysUntil(c.dueDay);
+    if (d === 0 || d === 1) {
+      const amt = c.balance ? FT.fmt(c.balance, c.currency || cur) : null;
+      items.push({ icon: "creditCard", tone: d === 0 ? "neg" : "warn",
+        title: `${c.name || "Card"} payment ${d === 0 ? "due today" : "due tomorrow"}`,
+        detail: amt ? `${amt} outstanding` : "Pay to avoid interest & late fees" });
+    }
+  });
+  // also card bills that arrived in the inbox, due today/tomorrow only
+  (state.upcomingBills || []).forEach(b => {
+    const d = Math.ceil((new Date(b.dueDate) - today) / 86400000);
+    if (d === 0 || d === 1) items.push({ icon: "receipt", tone: d === 0 ? "neg" : "warn",
+      title: `${b.merchant} — ${FT.fmt(b.amount, b.currency || cur)} ${d === 0 ? "due today" : "due tomorrow"}`,
+      detail: "From your inbox", billId: b.id });
+  });
+
+  // 2) best card to use today
   if ((state.cards || []).length) {
     let best = null;
     state.cards.forEach(c => {
       const def = FT.cardDef(c.cardType) || {};
       const rate = Math.max(FT.rewardRate(c, "online"), FT.rewardRate(c, "dining"), (c.base != null ? c.base : def.base) || 1);
       const float = FT.floatDays(c) || 0;
-      const score = rate * 100 + float; // reward dominates, float breaks ties
+      const score = rate * 100 + float;
       if (!best || score > best.score) best = { c, def, rate, float, score };
     });
     if (best) items.push({ icon: "creditCard", tone: "pos", title: `Use ${best.c.name || best.def.name} today`,
-      detail: `${best.rate}% on everyday spend${best.float ? ` · ~${best.float} days interest-free float left` : ""}` });
+      detail: `${best.rate}% on everyday spend${best.float ? ` · ~${best.float}d float left` : ""}` });
   }
 
-  // 2) statement-tomorrow / float alerts
+  // 3) one useful dynamic nudge: a card whose statement generates tomorrow
+  //    (stop spending on it to keep the full interest-free window)
   (state.cards || []).forEach(c => {
-    const toStmt = FT.daysUntil(c.billingDay);
-    if (toStmt === 1) items.push({ icon: "alarm", tone: "warn", title: `${c.name || "A card"} statement generates tomorrow`,
-      detail: "Pause spends on it today to get the full interest-free period; use another card." });
+    if (FT.daysUntil(c.billingDay) === 1) items.push({ icon: "alarm", tone: "warn",
+      title: `${c.name || "A card"} statement generates tomorrow`,
+      detail: "Pause spends on it today; use another card for the longer float." });
   });
 
-  // 3) bills due today / soon
-  (state.upcomingBills || []).forEach(b => {
-    const d = Math.ceil((new Date(b.dueDate) - today) / 86400000);
-    if (d <= 3) items.push({ icon: "receipt", tone: d < 0 ? "neg" : "warn",
-      title: `${b.merchant} — ${FT.fmt(b.amount, b.currency || cur)} ${d < 0 ? "overdue" : d === 0 ? "due today" : "due in " + d + "d"}`,
-      detail: "From your inbox", billId: b.id });
-  });
-
-  // 4) unusual spend today vs 30-day daily average
-  const last30 = state.transactions.filter(t => t.type === "expense" && t.date >= FT.daysAgo(30));
-  const avgDaily = last30.reduce((s, t) => s + Compute.tAmt(t, state), 0) / 30;
-  const todaySpend = state.transactions.filter(t => t.type === "expense" && t.date === todayISO).reduce((s, t) => s + Compute.tAmt(t, state), 0);
-  if (avgDaily > 0 && todaySpend > avgDaily * 3 && todaySpend > 2000)
-    items.push({ icon: "trendingUp", tone: "warn", title: `High spend today: ${FT.fmt(todaySpend, cur)}`, detail: `About ${(todaySpend / avgDaily).toFixed(1)}× your ${FT.fmt(avgDaily, cur)} daily average.` });
-
-  // 5) idle cash
-  (state.accounts || []).forEach(a => {
-    if (a.type === "bank") {
-      const bal = Compute.liveBal(a, state);
-      if (bal > 300000 && (!a.rate || a.rate < 5))
-        items.push({ icon: "piggyBank", tone: "muted", title: `${FT.fmtShort(bal, cur)} idle in ${a.name}`,
-          detail: `Earning ${a.rate || 3}% — a sweep-in FD would earn ~${FT.fmtShort(bal * 0.04, cur)}/yr more with the same liquidity.` });
-    }
-  });
-
-  // 6) reward milestone (if a card defines one)
-  // 7) debt-free nudge handled in Investments; one-line here if heavy interest
-  const dm = (window.debtMetrics ? window.debtMetrics(state) : null);
-  if (dm && dm.monthlyInterest > 5000)
-    items.push({ icon: "target", tone: "muted", title: `Debt is costing ${FT.fmt(dm.monthlyInterest, cur)}/mo in interest`, detail: "See your quarterly plan in Investments for the fastest payoff path." });
-
-  // urgent money first: overdue/due-today bills lead, then the rest in build order
-  const rank = (it) => {
-    if (it.icon === "receipt" && it.tone === "neg") return 0; // overdue
-    if (it.icon === "receipt" && /due today/.test(it.title)) return 1;
-    return 2;
-  };
-  return items.map((it, i) => ({ it, i })).sort((a, b) => rank(a.it) - rank(b.it) || a.i - b.i).map(x => x.it);
+  return items;
 }
 
 function DailyBrief({ state, actions, go }) {
   const items = useMemo(() => buildBriefItems(state), [state]);
-  const briefDay = new Date(Date.now() - 7 * 3600000).toISOString().slice(0, 10);
-  const aiNote = state.brief && state.brief.day === briefDay ? state.brief.aiNote : null;
-
-  // refresh the interpretive AI note once per "brief day" (boundary at 7am).
-  useEffect(() => {
-    const now = new Date();
-    const briefDay = new Date(now.getTime() - 7 * 3600000).toISOString().slice(0, 10); // day starts at 07:00 local
-    if (state.brief && state.brief.day === briefDay) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const snap = window.buildSnapshot ? window.buildSnapshot(state) : "";
-        const prompt = `Based on this user's finances, write ONE short, specific, non-obvious observation for today (max 22 words) — a nudge they'd act on. No greeting, no preamble, plain text only.\n\n${snap}`;
-        const note = (await window.claude.complete(prompt) || "").trim().replace(/^["']|["']$/g, "").slice(0, 160);
-        if (!cancelled) actions.saveBrief({ day: briefDay, date: FT.todayISO(), aiNote: note });
-      } catch (e) { if (!cancelled) actions.saveBrief({ day: briefDay, date: FT.todayISO(), aiNote: "" }); }
-    })();
-    return () => { cancelled = true; };
-  }, []);
 
   const TONE = { pos: ["var(--pos)", "var(--pos-soft)"], warn: ["var(--warn)", "var(--warn-soft, var(--surface-3))"], neg: ["var(--neg)", "var(--neg-soft)"], muted: ["var(--text-2)", "var(--surface-2)"] };
-  const total = items.length + (aiNote ? 1 : 0);
+  const total = items.length;
+  const [open, setOpen] = useState(true);
 
   return (
     <div className="lt-wrap fade-in" style={{ background: "var(--surface)" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "11px 16px", borderBottom: total ? "1px solid var(--border-soft)" : "none" }}>
-        <span style={{ fontWeight: 700, fontSize: 14 }}>Today</span>
-        <span style={{ fontSize: 12, color: "var(--text-3)", fontWeight: 600 }}>{new Date().toLocaleDateString("en-GB", { weekday: "short", day: "2-digit", month: "short" })}</span>
-        <span style={{ marginLeft: "auto", fontSize: 11.5, color: "var(--text-3)" }}>{total ? total + " worth your attention" : "All clear"}</span>
-      </div>
-      {aiNote && (
-        <div style={{ display: "flex", gap: 11, padding: "11px 16px", borderBottom: "1px solid var(--border-soft)" }}>
-          <span className="brief-ico" style={{ background: "var(--accent-soft)", color: "var(--accent)" }}><Icon name="sparkles" size={15} /></span>
-          <div style={{ fontSize: 13.5, fontWeight: 600, alignSelf: "center" }}>{aiNote}</div>
-        </div>
-      )}
-      {items.map((it, i) => {
+      <button onClick={() => setOpen(!open)} style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 14px", width: "100%", background: "none", border: "none", cursor: "pointer", textAlign: "left", borderBottom: open && total ? "1px solid var(--border-soft)" : "none" }}>
+        <Icon name={open ? "chevronDown" : "chevronRight"} size={14} style={{ color: "var(--text-3)" }} />
+        <span style={{ fontWeight: 700, fontSize: 13 }}>Today</span>
+        <span style={{ marginLeft: "auto", fontSize: 11, color: total ? "var(--accent)" : "var(--text-3)", fontWeight: 600 }}>{total ? total + " to note" : "All clear"}</span>
+      </button>
+      {open && items.map((it, i) => {
         const [fg, bg] = TONE[it.tone] || TONE.muted;
         return (
-          <div key={i} style={{ display: "flex", gap: 11, padding: "11px 16px", borderBottom: i < items.length - 1 ? "1px solid var(--border-soft)" : "none", alignItems: "center" }}>
-            <span className="brief-ico" style={{ background: bg, color: fg }}><Icon name={it.icon} size={15} /></span>
+          <div key={i} style={{ display: "flex", gap: 9, padding: "8px 14px", borderBottom: i < items.length - 1 ? "1px solid var(--border-soft)" : "none", alignItems: "center" }}>
+            <span className="brief-ico" style={{ background: bg, color: fg, width: 26, height: 26 }}><Icon name={it.icon} size={13} /></span>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 13.5, fontWeight: 650 }}>{it.title}</div>
-              <div style={{ fontSize: 12, color: "var(--text-3)", marginTop: 2, lineHeight: 1.45 }}>{it.detail}</div>
+              <div style={{ fontSize: 12.5, fontWeight: 650 }}>{it.title}</div>
+              <div style={{ fontSize: 11, color: "var(--text-3)", marginTop: 1, lineHeight: 1.35 }}>{it.detail}</div>
             </div>
-            {it.billId && <button className="btn btn-sm btn-primary" style={{ flexShrink: 0 }} onClick={() => actions.payBill(it.billId)}>Pay</button>}
+            {it.billId && <button className="btn btn-sm btn-primary" style={{ flexShrink: 0, padding: "3px 10px" }} onClick={() => actions.payBill(it.billId)}>Pay</button>}
           </div>
         );
       })}
-      {!total && <div style={{ padding: "16px", fontSize: 13, color: "var(--text-3)", textAlign: "center" }}>Nothing needs your attention today.</div>}
     </div>
   );
 }
@@ -386,6 +343,8 @@ function Dashboard({ state, actions, go, openAdd }) {
         <IncomeAssetsCard state={state} actions={actions} />
       </div>
       {showOwed && <OwedModal state={state} actions={actions} onClose={() => setShowOwed(false)} />}
+
+      <FinancialCritic state={state} actions={actions} />
 
       {/* charts */}
       <div className="grid" style={{ gridTemplateColumns: "1.5fr 1fr" }}>

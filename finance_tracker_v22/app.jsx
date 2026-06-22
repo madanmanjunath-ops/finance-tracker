@@ -269,12 +269,14 @@ function App({ cloudOn, user }) {
       leverage: s.leverage ? { ...s.leverage, steps: s.leverage.steps.map(st => st.id !== id ? st : { ...st, done: !st.done, doneAt: !st.done ? FT.todayISO() : null }) } : s.leverage,
     })),
     // ---- split & settle ----
-    addSplitExpense: ({ txn, total, yourShare, label }) => patch(s => {
+    addSplitExpense: ({ txn, total, yourShare, label, replaceId }) => patch(s => {
       const owed = Math.max(0, total - yourShare);
       const recId = FT.uid();
       const t = { ...txn, id: FT.uid(), amount: yourShare, note: (txn.note || "") + ` · split (you paid ${FT.fmt(total, txn.currency || "INR")})`, splitId: recId };
       const rec = owed > 0 ? [{ id: recId, label: label || txn.merchant, total, yourShare, owed, settled: false, date: txn.date, txnId: t.id, account: txn.account, currency: txn.currency || "INR", settlements: [] }] : [];
-      return { transactions: [t, ...s.transactions].sort((a, b) => b.date.localeCompare(a.date)), receivables: [...rec, ...(s.receivables || [])] };
+      // when splitting an existing (e.g. Gmail-imported) txn, drop the original
+      const base = replaceId ? s.transactions.filter(x => x.id !== replaceId) : s.transactions;
+      return { transactions: [t, ...base].sort((a, b) => b.date.localeCompare(a.date)), receivables: [...rec, ...(s.receivables || [])] };
     }),
     settleReceivable: (id, amount) => patch(s => {
       const r = (s.receivables || []).find(x => x.id === id); if (!r) return {};

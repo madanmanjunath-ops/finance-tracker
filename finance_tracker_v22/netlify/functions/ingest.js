@@ -30,6 +30,20 @@ async function sbPatch(userId, data) {
 }
 
 function extractVPA(t){const m=String(t||"").match(/\b[a-z0-9._-]{2,}@[a-z]{2,}\b/i);return m?m[0]:null;}
+// Extract payee from UPI "Transaction Info" strings like:
+//   UPI/P2A/939904858765/SANTHOSH KUMAR RAJA
+//   UPI/DR/123456/Swiggy   |   UPI/P2M/ref/AMAZON
+// The payee is the last segment after the numeric reference.
+function extractUpiPayee(text) {
+  const s = String(text || "");
+  // match UPI/<type>/<digits>/<NAME...> capturing the name up to a newline or end
+  let m = s.match(/UPI\/[A-Z0-9]+\/\d+\/([A-Z0-9][A-Za-z0-9 .&'-]{1,60})/);
+  if (m) return m[1].trim().replace(/\s+/g, " ");
+  // fallback: "/<NAME>" at end of a UPI line
+  m = s.match(/UPI\/[^\n]*?\/([A-Za-z][A-Za-z .&'-]{2,40})\s*$/m);
+  if (m) return m[1].trim();
+  return null;
+}
 function looksLikeTransfer(text, data) {
   const low = String(text || "").toLowerCase();
   if (/\b(neft|imps|rtgs|upi transfer|fund transfer|self|own account|a\/c transfer|transferred to your)\b/.test(low)) {
@@ -57,7 +71,7 @@ async function parseEmail(text, data) {
 If it confirms a transaction that ALREADY HAPPENED (debited/credited/spent/received):
 {"kind":"transaction","type":"income"|"expense"|"transfer","amount":<number>,"currency":"INR"|"USD"|"EUR"|"GBP","merchant":"<string>","account":"<string|null>","date":"YYYY-MM-DD","category":"<id or 'transfer'>","confidence":<0-100>}
 
-"merchant" must be a SHORT, human-friendly label a person instantly recognizes — the brand, payee, or purpose. CRITICAL: this is the OTHER party in the transaction (who you paid, or who paid you), NOT the bank or service that SENT the email. Ignore the email's sender/From line entirely — a debit alert from "HDFC Bank" about a payment to "Swiggy" has merchant "Swiggy", not "HDFC". Look inside the body for "paid to", "to VPA", "at <merchant>", "towards", "received from", the UPI handle, or the payee name. NEVER use raw bank names, reference numbers, or codes. Examples: "Swiggy", "House rent", "Skoda car EMI", "Salary". For a credit-card bill payment, name it "<card name> bill" using the user's card list (e.g. "Kotak Solitaire bill"). "account" is which of the user's accounts/cards the money moved on — if the email mentions a card (by name or last-4 digits), put that card's name and include its last 4 digits in "account" (e.g. "HDFC Infinia 0042"); copied from the user's list below if identifiable, else null.
+"merchant" must be a SHORT, human-friendly label a person instantly recognizes — the brand, payee, or purpose. CRITICAL: this is the OTHER party in the transaction (who you paid, or who paid you), NOT the bank or service that SENT the email. Ignore the email's sender/From line entirely — a debit alert from "HDFC Bank" about a payment to "Swiggy" has merchant "Swiggy", not "HDFC". Look inside the body for "paid to", "to VPA", "at <merchant>", "towards", "received from", the UPI handle, or the payee name. NEVER use raw bank names, reference numbers, or codes. If the only name you can find is a bank/card issuer (HDFC, ICICI, Axis, Kotak, SBI, Scapia, Federal, Amazon Pay, Amex, IDFC, Yes Bank, RBL, AU, IndusInd, etc.), that is the SENDER, not the merchant — do NOT use it; instead look harder in the body for the real payee, or use the UPI VPA, or return merchant "Unknown" so the app can fall back. Examples: "Swiggy", "House rent", "Skoda car EMI", "Salary". For a credit-card bill payment, name it "<card name> bill" using the user's card list (e.g. "Kotak Solitaire bill"). "account" is which of the user's accounts/cards the money moved on — if the email mentions a card (by name or last-4 digits), put that card's name and include its last 4 digits in "account" (e.g. "HDFC Infinia 0042"); copied from the user's list below if identifiable, else null.
 
 If it announces a bill or payment that is DUE IN THE FUTURE (bill generated, statement ready with amount due, premium/EMI/recharge reminder, "pay by <date>"):
 {"kind":"bill","amount":<number, the amount due>,"currency":"INR"|"USD"|"EUR"|"GBP","merchant":"<biller name>","dueDate":"YYYY-MM-DD","category":"<id>","confidence":<0-100>}
@@ -119,7 +133,11 @@ exports.handler = async (event) => {
   const type = o.type === "income" ? "income" : o.type === "transfer" ? "transfer" : "expense";
 
   // friendly name: user's rename rules override the AI's label
-  let merchant = ((o.merchant && o.merchant.toLowerCase() !== "unknown") ? o.merchant : (extractVPA(text) || "Transaction")).slice(0, 80);
+  const BANKISH = /^(hdfc|icici|axis|kotak|sbi|state bank|scapia|federal|amazon pay|amex|american express|idfc|yes bank|rbl|au small|au bank|indusind|citi|hsbc|standard chartered|pnb|canara|bob|bank of baroda|union bank)\b/i;
+  const upiPayee = extractUpiPayee(text);
+  let merchant = ((o.merchant && o.merchant.toLowerCase() !== "unknown") ? o.merchant : (upiPayee || extractVPA(text) || "Transaction")).slice(0, 80);
+  // if the AI returned a bank/issuer name as the merchant, prefer the real UPI payee
+  if (BANKISH.test(merchant) && upiPayee) merchant = upiPayee.slice(0, 80);
   let catOverride = null;
   const lowM = merchant.toLowerCase();
   for (const r of (data.renameRules || [])) {
@@ -131,19 +149,24 @@ exports.handler = async (event) => {
   // booked onto the card itself (account = "card:<id>").
   let accountId = (data.accounts && data.accounts[0] && data.accounts[0].id) || "";
   let note = "Gmail import";
-  const last4 = (String(text).match(/(?:xx|••|ending|card no\.?|\*+)\s*(\d{4})\b/i) || [])[1];
+  // last-4 from formats like "XX3774", "xx 3774", "ending 3774", "A/c ...3774", "••3774", "****3774"
+  const last4 = (String(text).match(/(?:xx|••|ending|account number|a\/c|acct|card no\.?|\*+)\s*[:.]?\s*x*(\d{4})\b/i) || [])[1];
   if (o.account || last4) {
     const want = String(o.account || "").toLowerCase();
-    const acc = (data.accounts || []).find(a => a.name && (want.includes(a.name.toLowerCase()) || a.name.toLowerCase().includes(want)));
+    // match a bank account by name OR by last-4 (if the account has one stored)
+    const acc = (data.accounts || []).find(a =>
+      (last4 && a.last4 && String(a.last4) === last4) ||
+      (a.name && want && (want.includes(a.name.toLowerCase()) || a.name.toLowerCase().includes(want)))
+    );
     const card = (data.cards || []).find(c =>
       (last4 && c.last4 && String(c.last4) === last4) ||
       (c.name && want && (want.includes(c.name.toLowerCase()) || c.name.toLowerCase().includes(want)))
     );
     // a card spend (expense on a card) should sit on the card; a payment FROM a
-    // bank stays on the bank account
-    if (card && type === "expense") { accountId = "card:" + card.id; note = "Gmail import"; }
+    // bank stays on the bank account. Prefer an exact last-4 account match.
+    if (card && type === "expense" && (!acc || (last4 && String(card.last4) === last4))) { accountId = "card:" + card.id; note = "Gmail import"; }
     else if (acc) accountId = acc.id;
-    else if (card) note = "Gmail import · " + card.name;
+    else if (card && type === "expense") { accountId = "card:" + card.id; }
   }
 
   const txn = {

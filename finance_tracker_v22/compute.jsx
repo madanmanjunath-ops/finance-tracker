@@ -52,9 +52,13 @@ const Compute = (function () {
     let cash = 0, fd = 0;
     (state.accounts || []).forEach(a => {
       const t = (a.type || "").toLowerCase();
-      const v = liveBal(a, state);
+      // value: prefer derived live balance, but never less than stored balance
+      // for non-spending asset types (FDs don't accrue txn history)
+      let v = liveBal(a, state);
+      const stored = conv(a.balance || 0, a.currency, state);
+      if (["fd", "rd", "liquid", "bond"].includes(t) && Math.abs(v) < 1 && stored > 0) v = stored;
       if (["bank", "cash", "current", "savings"].includes(t)) cash += v;
-      else if (["fd", "liquid", "rd"].includes(t)) fd += v;
+      else if (["fd", "rd", "liquid"].includes(t)) fd += v;
     });
     return { cash, fd, total: cash + fd };
   }

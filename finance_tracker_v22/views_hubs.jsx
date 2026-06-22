@@ -86,7 +86,6 @@ function LoansHub({ state, actions }) {
 function GrowHub({ state, actions, openProfile }) {
   return (
     <div className="fade-in grid" style={{ gap: 22 }}>
-      <FinancialCritic state={state} actions={actions} />
       <Investments state={state} actions={actions} openProfile={openProfile} />
       <HubSection title="Wealth without new money" sub="leverage what you have">
         <LeverageProgram state={state} actions={actions} />
