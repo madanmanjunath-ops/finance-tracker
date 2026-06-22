@@ -13,31 +13,38 @@ function FinancialCritic({ state, actions }) {
   const [busy, setBusy] = useState(false);
 
   const m = useMemo(() => {
-    const p = state.profile || {};
-    let a = null;
-    try { a = window.buildAdvice ? window.buildAdvice(state) : null; } catch (e) { a = null; }
-    // robust monthly expense: use 3-mo avg, but fall back to all-time avg if thin
-    let monthlyExp = a ? a.avgExp : 0;
-    if (!monthlyExp || monthlyExp < 1) {
-      const exps = (state.transactions || []).filter(t => t.type === "expense");
-      if (exps.length) {
-        const months = new Set(exps.map(t => t.date.slice(0, 7)));
-        const totalExp = exps.reduce((s, t) => s + Compute.tAmt(t, state), 0);
-        monthlyExp = totalExp / Math.max(1, months.size);
+    try {
+      const p = state.profile || {};
+      let a = null;
+      try { a = window.buildAdvice ? window.buildAdvice(state) : null; } catch (e) { a = null; }
+      // robust monthly expense: use 3-mo avg, but fall back to all-time avg if thin
+      let monthlyExp = a ? a.avgExp : 0;
+      if (!monthlyExp || monthlyExp < 1) {
+        const exps = (state.transactions || []).filter(t => t.type === "expense");
+        if (exps.length) {
+          const months = new Set(exps.map(t => t.date.slice(0, 7)));
+          const totalExp = exps.reduce((s, t) => s + Compute.tAmt(t, state), 0);
+          monthlyExp = totalExp / Math.max(1, months.size);
+        }
       }
+      let dm = null;
+      try { dm = window.debtMetrics ? window.debtMetrics(state) : null; } catch (e) { dm = null; }
+      const annualIncome = a ? a.avgInc * 12 : 0;
+      const pct = FT.incomePercentile(annualIncome, view) || { topPct: null, label: "", note: "" };
+      let nw = { net: 0, assets: 0, liabilities: 0 };
+      try { nw = Compute.netWorth(state); } catch (e) {}
+      let liquid = { cash: 0, fd: 0, total: 0 };
+      try { liquid = Compute.liquidBreakdown(state); } catch (e) {}
+      const monthsRunway = monthlyExp > 0 ? liquid.total / monthlyExp : 0;
+      const wealthMult = p.age ? FT.wealthTarget(p.age) : null;
+      const targetNW = wealthMult && annualIncome ? wealthMult * annualIncome : null;
+      const dti = annualIncome > 0 && dm ? (dm.totalDebt / annualIncome) : null;
+      const savRate = a ? a.savRate : 0;
+      return { annualIncome, pct, nw, liquid, monthsRunway, wealthMult, targetNW, dti, savRate, avgExp: monthlyExp, dm };
+    } catch (e) {
+      // last-resort fallback so the component never blanks
+      return { annualIncome: 0, pct: { topPct: null, label: "", note: "" }, nw: { net: 0 }, liquid: { cash: 0, fd: 0, total: 0 }, monthsRunway: 0, wealthMult: null, targetNW: null, dti: null, savRate: 0, avgExp: 0, dm: null, _error: String(e && e.message || e) };
     }
-    let dm = null;
-    try { dm = window.debtMetrics ? window.debtMetrics(state) : null; } catch (e) { dm = null; }
-    const annualIncome = a ? a.avgInc * 12 : 0;
-    const pct = FT.incomePercentile(annualIncome, view);
-    const nw = Compute.netWorth(state);
-    const liquid = Compute.liquidBreakdown(state);
-    const monthsRunway = monthlyExp > 0 ? liquid.total / monthlyExp : 0;
-    const wealthMult = p.age ? FT.wealthTarget(p.age) : null;
-    const targetNW = wealthMult && annualIncome ? wealthMult * annualIncome : null;
-    const dti = annualIncome > 0 && dm ? (dm.totalDebt / annualIncome) : null;
-    const savRate = a ? a.savRate : 0;
-    return { annualIncome, pct, nw, liquid, monthsRunway, wealthMult, targetNW, dti, savRate, avgExp: monthlyExp, dm };
   }, [state, view]);
 
   async function generate() {
@@ -70,11 +77,12 @@ function FinancialCritic({ state, actions }) {
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 1, background: "var(--border-soft)" }}>
-        <Stat label="Income percentile" big={m.pct.topPct ? "Top " + m.pct.topPct + "%" : "—"} sub={m.pct.label} />
+        <Stat label="Income percentile" big={m.pct.topPct ? "Top " + m.pct.topPct + "%" : "—"} sub={m.pct.label || "set income in profile"} />
         <Stat label="Emergency runway" big={m.monthsRunway.toFixed(1) + " mo"} sub={"of " + FT.fmtShort(m.avgExp, cur) + "/mo expenses"} color={zone.color} />
         <Stat label="Savings rate" big={m.savRate.toFixed(0) + "%"} sub={m.savRate >= 30 ? "excellent" : m.savRate >= 15 ? "solid" : "room to grow"} />
         <Stat label="Net worth vs age" big={m.targetNW ? (m.nw.net / m.targetNW * 100).toFixed(0) + "%" : "—"} sub={m.targetNW ? "of " + m.wealthMult + "× target" : "add age in profile"} />
       </div>
+      {m._error && <div style={{ padding: "8px 16px", fontSize: 11, color: "var(--neg)", fontWeight: 600 }}>Diagnostic: {m._error}</div>}
 
       <div style={{ padding: "14px 16px", borderTop: "1px solid var(--border-soft)" }}>
         {note ? (
