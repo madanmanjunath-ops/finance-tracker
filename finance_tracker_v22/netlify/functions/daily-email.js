@@ -94,7 +94,7 @@ async function sendEmail(to, subject, body) {
   return r.ok;
 }
 
-exports.handler = async () => {
+async function sendAll() {
   if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_KEY || !process.env.RESEND_API_KEY) {
     return { statusCode: 500, body: "Missing env vars (SUPABASE_URL / SUPABASE_SERVICE_KEY / RESEND_API_KEY)." };
   }
@@ -102,13 +102,19 @@ exports.handler = async () => {
     headers: { apikey: process.env.SUPABASE_SERVICE_KEY, authorization: "Bearer " + process.env.SUPABASE_SERVICE_KEY },
   });
   const rows = await res.json();
-  let sent = 0;
+  let sent = 0, eligible = 0;
   for (const row of rows || []) {
     const data = row.data; if (!data || !data.notify || !data.notify.enabled || !data.notify.email) continue;
+    eligible++;
     const s = snapshot(data);
     const tip = await aiTip(s);
     const ok = await sendEmail(data.notify.email, `Your finance snapshot — ${fmt(s.net, s.cur)} net worth`, html(data.profile && data.profile.name, s, tip));
     if (ok) sent++;
   }
-  return { statusCode: 200, body: `Sent ${sent} snapshot email(s).` };
-};
+  return { statusCode: 200, body: `Eligible: ${eligible}. Sent ${sent} snapshot email(s).` };
+}
+
+// Scheduled entrypoint (runs at the cron time in netlify.toml).
+exports.handler = async () => { return await sendAll(); };
+// Exported so the manual-trigger function can reuse the exact same logic.
+exports.sendAll = sendAll;

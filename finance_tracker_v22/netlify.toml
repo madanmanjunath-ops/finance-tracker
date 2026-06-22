@@ -17,6 +17,12 @@
   to = "/.netlify/functions/ingest"
   status = 200
 
+# Manual daily-snapshot trigger (for testing; secret-protected).
+[[redirects]]
+  from = "/api/send-snapshot-now"
+  to = "/.netlify/functions/send-snapshot-now"
+  status = 200
+
 # Daily snapshot email — 01:45 UTC = 07:15 AM IST.
 [functions."daily-email"]
   schedule = "45 1 * * *"
