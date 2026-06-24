@@ -45,6 +45,8 @@ var MATCH_FILTER =
   'OR subject:(debited OR credited OR "transaction alert" OR "spent on" OR "payment of" OR ' +
   '"has been debited" OR "has been credited" OR "txn" OR "transaction" OR "statement" OR ' +
   '"e-statement" OR "card was used" OR "received in your account" OR ' +
+  '"credit limit" OR "available limit" OR "available credit limit" OR "limit increase" OR ' +
+  '"limit enhanced" OR "limit enhancement" OR "limit revised" OR "limit update" OR ' +
   '"bill generated" OR "bill is generated" OR "bill is ready" OR "new bill" OR ' +
   '"payment due" OR "due date" OR "amount due" OR "total amount due" OR "min amount due" OR ' +
   '"pay by" OR "due on" OR "premium due" OR "premium reminder" OR "renewal" OR ' +
