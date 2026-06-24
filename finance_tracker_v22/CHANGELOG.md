@@ -17,6 +17,8 @@
   writing a statement due date now require the email to contain the card's
   last-4 (the actual number), not just its name — so a promotional email that
   names a card and quotes an "available limit" can no longer corrupt the real one.
+- **UPI payee extractor hardened** so a trailing amount on the same line
+  (e.g. "...SINGH Rs 125") can't bleed into the captured name.
 
 ## v35 — Cards: unified limit logic + advisor, points & opportunities
 

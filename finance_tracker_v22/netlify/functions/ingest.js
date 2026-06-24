@@ -30,23 +30,24 @@ async function sbPatch(userId, data) {
 }
 
 function extractVPA(t){const m=String(t||"").match(/\b[a-z0-9._-]{2,}@[a-z]{2,}\b/i);return m?m[0]:null;}
-// Tidy a payee name: collapse spaces, drop a leading honorific, de-shout ALL CAPS.
+// Tidy a payee name: collapse spaces, drop a leading honorific, strip a
+// trailing amount/currency remnant, de-shout ALL CAPS.
 function cleanPayee(name) {
   let n = String(name || "").trim().replace(/\s+/g, " ");
   n = n.replace(/^(mr|mrs|ms|m\/s|dr|shri|smt)\.?\s+/i, "");
+  n = n.replace(/\s+(rs\.?|inr|₹)\s*\d*\.?\d*\s*$/i, "");   // drop a trailing "Rs 125" / "INR"
   if (n && /[A-Z]/.test(n) && n === n.toUpperCase()) n = n.toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
-  return n;
+  return n.trim();
 }
 // Extract payee from UPI "Transaction Info" strings like:
 //   UPI/P2A/939904858765/SANTHOSH KUMAR RAJA
 //   UPI/DR/123456/Swiggy   |   UPI/P2M/ref/Mr RAJESH SINGH
-// The payee is the last segment after the numeric reference.
+// The payee is the segment after the numeric reference. Names hold no digits,
+// so the capture excludes them — that stops a trailing amount bleeding in.
 function extractUpiPayee(text) {
   const s = String(text || "");
-  // match UPI/<type>/<digits>/<NAME...> capturing the name up to a newline or end
-  let m = s.match(/UPI\/[A-Z0-9]+\/\d+\/([A-Z0-9][A-Za-z0-9 .&'-]{1,60})/i);
+  let m = s.match(/UPI\/[A-Z0-9]+\/\d+\/([A-Za-z][A-Za-z .&'-]{1,60})/i);
   if (m) return cleanPayee(m[1]);
-  // fallback: "/<NAME>" at end of a UPI line
   m = s.match(/UPI\/[^\n]*?\/([A-Za-z][A-Za-z .&'-]{2,40})\s*$/m);
   if (m) return cleanPayee(m[1]);
   return null;
