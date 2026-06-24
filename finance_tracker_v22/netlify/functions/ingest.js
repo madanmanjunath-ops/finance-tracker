@@ -61,6 +61,20 @@ function ownHints(data) {
   return [...out];
 }
 
+// Resolve which of the user's CARDS an email is about — by last-4 first, then name.
+function matchCardId(text, data) {
+  const low = String(text || "").toLowerCase();
+  const last4 = (low.match(/(?:xx|••|ending|account number|a\/c|acct|card no\.?|\*+)\s*[:.]?\s*x*(\d{4})\b/) || [])[1];
+  if (last4) { const byNum = (data.cards || []).find(c => c.last4 && String(c.last4) === last4); if (byNum) return byNum.id; }
+  const byName = (data.cards || []).find(c => { const n = String(c.name || "").toLowerCase(); return n.length >= 4 && low.includes(n); });
+  return byName ? byName.id : null;
+}
+// Pull a stated available-limit figure: "available [credit] limit [is/of/:] [Rs./INR/₹] 1,23,456"
+function availFromText(text) {
+  const m = String(text || "").match(/available\s+(?:credit\s+)?limit\s*(?:is|of|:)?\s*(?:rs\.?|inr|₹)?\s*([\d,]+(?:\.\d+)?)/i);
+  return m ? +m[1].replace(/,/g, "") : null;
+}
+
 async function parseEmail(text, data) {
   const hints = ownHints(data || {});
   const ownLine = hints.length
@@ -105,7 +119,28 @@ exports.handler = async (event) => {
 
   let o; try { o = await parseEmail(text, data); } catch (e) { return json(200, { ok: false, reason: "parse_failed" }); }
   const amt = Math.abs(+String(o.amount).replace(/[^0-9.]/g, "")) || 0;
-  if (!amt) return json(200, { ok: false, reason: "not_a_transaction" });
+
+  // ---- card-side updates that can ride on ANY email, transaction or not ----
+  // (1) a stated available limit re-anchors the card; (2) a statement due date
+  // (handled in the bill branch) updates the card's next-due fields.
+  const cardUpdates = {}; // cid -> partial card patch
+  const mCid = matchCardId(text, data);
+  const mAvail = availFromText(text);
+  if (mCid && mAvail != null && mAvail >= 0) cardUpdates[mCid] = { ...(cardUpdates[mCid] || {}), availAnchor: mAvail, availAnchorDate: todayISO(), availAnchorExact: true };
+  const applyCardUpdates = (next) => {
+    const ids = Object.keys(cardUpdates);
+    if (ids.length) next.cards = (next.cards || []).map(c => cardUpdates[c.id] ? { ...c, ...cardUpdates[c.id] } : c);
+    return next;
+  };
+
+  if (!amt) {
+    if (Object.keys(cardUpdates).length) {
+      const next = applyCardUpdates(JSON.parse(JSON.stringify(data)));
+      await sbPatch(user_id, next);
+      return json(200, { ok: true, booked: "card_limit_updated" });
+    }
+    return json(200, { ok: false, reason: "not_a_transaction" });
+  }
 
   // ---- upcoming bill (due in the future) → upcomingBills, not the ledger ----
   if (o.kind === "bill") {
@@ -123,9 +158,15 @@ exports.handler = async (event) => {
     const k = (b) => (b.merchant || "").toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 14);
     const dup = next.upcomingBills.some(b => k(b) === k(bill) && (b.dueDate === bill.dueDate || Math.round(b.amount) === Math.round(bill.amount)));
     if (dup) return json(200, { ok: true, booked: "bill_duplicate", merchant: bill.merchant, amount: amt });
+    // A credit-card statement: also stamp the due amount + real due DATE onto
+    // the matching card so the Cards table shows the actual statement due date.
+    if (bill.category === "cardpay" && mCid) {
+      cardUpdates[mCid] = { ...(cardUpdates[mCid] || {}), stmtAmount: amt, stmtDueDate: due };
+    }
     // drop stale bills (past due by > 30 days) while we're here
     const cutoff = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
     next.upcomingBills = [bill, ...next.upcomingBills.filter(b => b.dueDate >= cutoff)].slice(0, 30);
+    applyCardUpdates(next);
     await sbPatch(user_id, next);
     return json(200, { ok: true, booked: "upcoming_bill", merchant: bill.merchant, amount: amt, dueDate: due });
   }
@@ -149,6 +190,7 @@ exports.handler = async (event) => {
   // booked onto the card itself (account = "card:<id>").
   let accountId = (data.accounts && data.accounts[0] && data.accounts[0].id) || "";
   let note = "Gmail import";
+  let payToCardId = null; // set when this is a payment TOWARDS one of the user's cards
   // last-4 from formats like "XX3774", "xx 3774", "ending 3774", "A/c ...3774", "••3774", "****3774"
   const last4 = (String(text).match(/(?:xx|••|ending|account number|a\/c|acct|card no\.?|\*+)\s*[:.]?\s*x*(\d{4})\b/i) || [])[1];
   if (o.account || last4) {
@@ -167,6 +209,9 @@ exports.handler = async (event) => {
     if (card && type === "expense" && (!acc || (last4 && String(card.last4) === last4))) { accountId = "card:" + card.id; note = "Gmail import"; }
     else if (acc) accountId = acc.id;
     else if (card && type === "expense") { accountId = "card:" + card.id; }
+    // a transfer that pays a card bill: keep the money leaving the bank, but
+    // credit the CARD via toAccount so its available limit is restored.
+    if (card && type === "transfer") payToCardId = "card:" + card.id;
   }
 
   const txn = {
@@ -175,6 +220,7 @@ exports.handler = async (event) => {
     merchant,
     category: type === "transfer" ? "transfer" : (catOverride && catOk(catOverride) ? catOverride : (catOk(o.category) ? o.category : "uncat")),
     account: accountId,
+    ...(payToCardId ? { toAccount: payToCardId } : {}),
     date: /^\d{4}-\d{2}-\d{2}$/.test(o.date) ? o.date : todayISO(),
     note, source: "gmail", confidence: o.confidence || 0, tags: [],
   };
@@ -220,13 +266,8 @@ exports.handler = async (event) => {
   const threshold = (data.gmail && data.gmail.autoThreshold) != null ? data.gmail.autoThreshold : 70;
   const autoBook = (o.confidence || 0) >= threshold;
   const next = JSON.parse(JSON.stringify(data));
-  // credit-limit anchoring: if the email states an available limit, re-anchor the card
-  const availMatch = String(text).match(/available\s+(?:credit\s+)?limit[^0-9₹]*₹?\s*([\d,]+)/i);
-  if (availMatch && accountId.startsWith("card:")) {
-    const cid = accountId.slice(5);
-    const availVal = +availMatch[1].replace(/,/g, "");
-    if (availVal > 0) next.cards = (next.cards || []).map(c => c.id === cid ? { ...c, availAnchor: availVal, availAnchorDate: txn.date } : c);
-  }
+  // apply any available-limit re-anchor / statement-due updates gathered above
+  applyCardUpdates(next);
   if (autoBook) { txn.status = "auto"; next.transactions = [txn, ...(next.transactions || [])].sort((a, b) => b.date.localeCompare(a.date)); }
   else { txn.status = "pending"; next.pending = [txn, ...(next.pending || [])]; }
   await sbPatch(user_id, next);

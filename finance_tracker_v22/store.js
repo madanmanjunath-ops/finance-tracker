@@ -270,6 +270,47 @@
     if (!rewCat || rewCat === "none") return 0;
     return rates[rewCat] != null ? rates[rewCat] : base;
   }
+  function ordinal(n) { const s = ["th", "st", "nd", "rd"], v = n % 100; return n + (s[(v - 20) % 10] || s[v] || s[0]); }
+  // Next payment due: prefer the real due DATE captured from a statement email
+  // (card.stmtDueDate, "YYYY-MM-DD"); otherwise fall back to the recurring dueDay.
+  function nextDue(card) {
+    if (card && card.stmtDueDate && /^\d{4}-\d{2}-\d{2}$/.test(card.stmtDueDate)) {
+      const d = new Date(card.stmtDueDate + "T00:00:00");
+      const now = new Date(); now.setHours(0, 0, 0, 0);
+      const inDays = Math.round((d - now) / 86400000);
+      if (inDays >= -3) return { label: ordinal(d.getDate()), inDays, exact: true }; // keep a couple days post-due
+    }
+    if (card && card.dueDay) return { label: ordinal(card.dueDay), inDays: daysUntil(card.dueDay), exact: false };
+    return { label: "—", inDays: null, exact: false };
+  }
+
+  /* ---------------- transfer-partner defaults (editable per card) ----------------
+     Seed values for points/miles cards. A user can override per card via
+     card.partners. These change over time — treat as a starting point, not gospel. */
+  const CARD_PARTNERS = {
+    kotaksolitaire: ["Air India", "Marriott", "Qatar"],
+    axisatlas: ["Air India", "British Airways", "Finnair", "Vietnam"],
+    axismagnus: ["Air India", "British Airways", "Marriott"],
+    hdfcinfinia: ["Air India", "Singapore Airlines", "Marriott"],
+    hdfcdiners: ["Air India", "Singapore Airlines", "Marriott"],
+    hdfcregaliagold: ["Air India", "Marriott"],
+    amexmrcc: ["Marriott", "Air India", "Singapore Airlines"],
+    amexplatinumtravel: ["Marriott", "Air India"],
+    bobeterna: ["Air India", "Marriott"],
+    idfcwealth: ["Air India"],
+    scapia: ["In-app travel"],
+  };
+  // partners for a card: explicit override → DB default → []
+  function cardPartners(card) {
+    if (card && Array.isArray(card.partners)) return card.partners;
+    return CARD_PARTNERS[card && card.cardType] || [];
+  }
+  // ₹ value per point (editable via card.ptValue; defaults to ₹1 for points/miles, else 0)
+  function pointValue(card) {
+    if (card && card.ptValue != null) return card.ptValue;
+    const def = CARD_MAP[card && card.cardType] || {};
+    return (def.type === "points" || def.type === "miles") ? 1 : 1;
+  }
 
   /* ---------------- transfer detection (own-account movements) ----------------
      A "transfer" moves money between the user's OWN accounts/cards. It must NOT
@@ -418,7 +459,7 @@
     KEY, SCHEMA, EXPENSE_CATS, INCOME_CATS, CAT_MAP, REW_CATS, ACCOUNT_TYPES, NETWORKS, PAYOUTS,
     CARD_DB, CARD_MAP, CUR, DEFAULT_FX,
     uid, todayISO, daysAgo, monthsAgo, load, save, reset, defaultState, migrate,
-    fmt, fmtShort, relDate, monthLabel, daysUntil, floatDays, rewardRate,
+    fmt, fmtShort, relDate, monthLabel, daysUntil, floatDays, rewardRate, ordinal, nextDue, cardPartners, pointValue,
     ownAccountHints, looksLikeTransfer, txnKey, TRANSFER_CAT, applyRenames, currentQuarter, parseAIJson, payTargets, payTargetName, extractVPA, incomePercentile, wealthTarget, BENCHMARKS,
     annualYield: (a) => (a.rate ? (a.balance || 0) * a.rate / 100 : 0),
     fdMaturityDays: (a) => a.maturityDate ? Math.round((new Date(a.maturityDate) - new Date()) / 86400000) : null,

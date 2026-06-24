@@ -69,20 +69,32 @@ const Compute = (function () {
     const limit = card.limit || 0;
     const anchor = card.availAnchor != null ? card.availAnchor : (limit - (card.balance || 0));
     const since = card.availAnchorDate || "0000-00-00";
+    const cardAcc = "card:" + card.id;
+    const exact = card.availAnchorExact === true; // anchor came from an email/manual reconcile (precise as of its date)
     let avail = anchor;
     (state.transactions || []).forEach(t => {
-      if (t.date < since) return;
-      if (t.account === "card:" + card.id) {
-        if (t.type === "expense") avail -= (t.amount || 0);
-        else if (t.type === "transfer") avail += (t.amount || 0); // paying the card frees limit
+      if (exact ? (t.date <= since) : (t.date < since)) return; // exact anchors are authoritative for their date
+      const amt = t.amount || 0;
+      if (t.account === cardAcc) {
+        if (t.type === "expense") avail -= amt;            // a swipe consumes available limit
+        else if (t.type === "transfer") avail += amt;      // legacy: payment booked ON the card frees limit
       }
+      if (t.type === "transfer" && t.toAccount === cardAcc) avail += amt; // payment INTO the card frees limit
     });
     return Math.max(0, Math.min(limit, avail));
   }
+  // Used = limit − available. Single source of truth; the table + strip both call this.
+  function cardUsed(card, state) { return Math.max(0, (card.limit || 0) - cardAvailable(card, state)); }
   function creditSummary(state) {
     let limit = 0, avail = 0;
     (state.cards || []).forEach(c => { limit += conv(c.limit || 0, c.currency || "INR", state); avail += conv(cardAvailable(c, state), c.currency || "INR", state); });
     return { limit, avail, used: limit - avail };
+  }
+  // Total reward points across cards and their approximate ₹ value (at each card's point value).
+  function pointsSummary(state) {
+    let points = 0, value = 0;
+    (state.cards || []).forEach(c => { const p = c.points || 0; points += p; value += p * FT.pointValue(c); });
+    return { points, value };
   }
 
   function fixedMonthly(state) {
@@ -153,7 +165,7 @@ const Compute = (function () {
   function groupByDate(txns) { const g = {}; txns.forEach(t => { (g[t.date] = g[t.date] || []).push(t); }); return Object.entries(g).sort((a, b) => b[0].localeCompare(a[0])); }
   function savingsRate(income, expense) { if (!income) return 0; return ((income - expense) / income) * 100; }
 
-  return { inMonth, thisMonth, prevMonth, rate, conv, tAmt, aBal, liveBal, totalLiveBal, owedToYou, liquidBreakdown, cardAvailable, creditSummary, fixedMonthly, passiveMonthly, sum, categoryBreakdown, monthlySeries, netWorth, netWorthSeries, pctChange, groupByDate, savingsRate };
+  return { inMonth, thisMonth, prevMonth, rate, conv, tAmt, aBal, liveBal, totalLiveBal, owedToYou, liquidBreakdown, cardAvailable, cardUsed, creditSummary, pointsSummary, fixedMonthly, passiveMonthly, sum, categoryBreakdown, monthlySeries, netWorth, netWorthSeries, pctChange, groupByDate, savingsRate };
 })();
 
 window.Compute = Compute;

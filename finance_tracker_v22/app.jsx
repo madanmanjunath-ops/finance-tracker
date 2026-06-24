@@ -207,15 +207,28 @@ function App({ cloudOn, user }) {
     payBill: (id) => patch(s => {
       const b = (s.upcomingBills || []).find(x => x.id === id); if (!b) return {};
       const isCardPay = b.category === "cardpay"; // paying your own card = transfer, not a new expense
+      // if this is a card bill, credit the matching card so its limit is freed
+      let toAccount = null;
+      if (isCardPay) {
+        const m = String(b.merchant || "").toLowerCase();
+        const card = (s.cards || []).find(c => c.name && c.name.length >= 4 && m.includes(c.name.toLowerCase()));
+        if (card) toAccount = "card:" + card.id;
+      }
       const txn = {
         id: FT.uid(), type: isCardPay ? "transfer" : "expense", amount: b.amount,
         currency: b.currency || "INR", merchant: b.merchant,
         category: isCardPay ? "transfer" : (b.category || "bills"),
         account: (s.accounts[0] && s.accounts[0].id) || "",
+        ...(toAccount ? { toAccount } : {}),
         date: FT.todayISO(), note: "Bill payment", source: "bill", status: "confirmed", tags: [],
       };
+      // clearing a card statement also clears that card's stored statement-due fields
+      const cards = toAccount
+        ? s.cards.map(c => ("card:" + c.id) === toAccount ? { ...c, stmtAmount: 0, stmtDueDate: null } : c)
+        : s.cards;
       return {
         upcomingBills: s.upcomingBills.filter(x => x.id !== id),
+        cards,
         transactions: [txn, ...s.transactions].sort((a, b2) => b2.date.localeCompare(a.date)),
       };
     }),
@@ -319,7 +332,7 @@ function App({ cloudOn, user }) {
     })),
     // reconcile a card's available limit from an email figure (or manual)
     reconcileCard: (id, availLimit) => patch(s => ({
-      cards: s.cards.map(c => c.id !== id ? c : { ...c, availAnchor: availLimit, availAnchorDate: FT.todayISO() }),
+      cards: s.cards.map(c => c.id !== id ? c : { ...c, availAnchor: availLimit, availAnchorDate: FT.todayISO(), availAnchorExact: true }),
     })),
     // auto-suggest recurring expenses from history (same merchant+~amount ≥3 months)
     suggestFixedFromHistory: (s) => {
