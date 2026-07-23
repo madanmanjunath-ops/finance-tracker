@@ -53,17 +53,48 @@ var MATCH_FILTER =
   '"emi due" OR "recharge" OR "plan expiring" OR "bill payment reminder")' +
   ') -in:chats -in:sent';
 
+// ---------- "only from now on" cutoff ----------
+// The routine 15-min check forwards ONLY emails received AFTER this moment.
+// Set it by running startFromNow() once (e.g. right after a resetSeen(), so an
+// emptied seen-set can't cause the last few days to be re-forwarded). Stored
+// per-user as epoch seconds, so clearing seenIds later never re-imports history.
+function getStartAfter() {
+  var v = PropertiesService.getUserProperties().getProperty("startAfter");
+  return v ? parseInt(v, 10) : 0;   // 0 = no cutoff (rolling window)
+}
+// Run this ONCE to make the forwarder ignore everything up to now and only
+// process emails that arrive from this point forward.
+function startFromNow() {
+  var now = Math.floor(Date.now() / 1000);
+  PropertiesService.getUserProperties().setProperty("startAfter", String(now));
+  Logger.log("Cutoff set. Only emails received after " + new Date(now * 1000) + " will be forwarded from now on.");
+}
+// Remove the cutoff (revert the routine check to the rolling LOOKBACK_DAYS window).
+function clearStartAfter() {
+  PropertiesService.getUserProperties().deleteProperty("startAfter");
+  Logger.log("Cutoff cleared — the routine check reverts to the newer_than:" + LOOKBACK_DAYS + "d window.");
+}
+
 // Routine query (recent only) and backfill query (wide window).
-function recentQuery()   { return 'newer_than:' + LOOKBACK_DAYS + 'd ' + MATCH_FILTER; }
+// With a cutoff set, ask Gmail directly for messages after it; otherwise use
+// the rolling LOOKBACK_DAYS window. (Gmail's after: accepts epoch seconds.)
+function recentQuery() {
+  var startAfter = getStartAfter();
+  var timeClause = startAfter ? ('after:' + startAfter) : ('newer_than:' + LOOKBACK_DAYS + 'd');
+  return timeClause + ' ' + MATCH_FILTER;
+}
 function backfillQuery() { return 'newer_than:' + BACKFILL_DAYS + 'd ' + MATCH_FILTER; }
 
 // ---------- main ----------
-function checkGmail() { run(recentQuery()); }
+function checkGmail() { run(recentQuery(), true); }
 
-function run(query) {
+// enforceCutoff: routine checks pass true so pre-cutoff mail is never forwarded;
+// backfill() passes false because its whole job is to pull older history.
+function run(query, enforceCutoff) {
   var threads = GmailApp.search(query, 0, 200);
   var props = PropertiesService.getUserProperties();
   var seen = JSON.parse(props.getProperty("seenIds") || "{}");
+  var startAfterMs = enforceCutoff ? getStartAfter() * 1000 : 0;
   var processed = 0, scanned = 0;
 
   outer:
@@ -74,6 +105,10 @@ function run(query) {
       scanned++;
       var id = msg.getId();
       if (seen[id]) continue;
+      // Message-level cutoff: a new reply can pull an OLD message back into the
+      // search (threads match by any message). Skip anything at/before the
+      // cutoff and mark it seen so it's never forwarded or rescanned.
+      if (startAfterMs && msg.getDate().getTime() <= startAfterMs) { seen[id] = Date.now(); continue; }
       var body = msg.getPlainBody();
       // NOTE: we deliberately do NOT prepend "From: <sender>" to the text — the
       // bank's name in the From line was anchoring the AI to pick the bank as the
@@ -109,7 +144,7 @@ function testOnce() { checkGmail(); }
 // ONE-TIME history import. Run this manually to backfill old emails
 // (BACKFILL_DAYS above). Re-run until it logs "forwarded 0" — each run
 // handles up to MAX_PER_RUN messages so it won't time out.
-function backfill() { run(backfillQuery()); }
+function backfill() { run(backfillQuery(), false); }
 
 // Run this ONCE to schedule the routine check every 15 minutes
 function createTrigger() {
