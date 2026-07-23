@@ -1,0 +1,31 @@
+# ─── Secrets: NEVER commit these ───────────────────────────────
+# API keys and service credentials belong in Netlify's environment
+# variables, not in the repo. This blocks the common ways they leak in.
+.env
+.env.*
+*.env
+secrets.*
+*.key
+*.pem
+
+# ─── Netlify local build/dev output ────────────────────────────
+.netlify/
+
+# ─── Node / tooling (in case any tooling is added later) ───────
+node_modules/
+npm-debug.log*
+yarn-error.log*
+.cache/
+
+# ─── OS / editor cruft ─────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*~
+
+# ─── Local scratch ─────────────────────────────────────────────
+*.local
+tmp/
+scratch/
