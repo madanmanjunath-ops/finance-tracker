@@ -120,7 +120,7 @@ Email:
 """${String(text).slice(0, 2500)}"""`;
   const r = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST", headers: { "content-type": "application/json", "x-api-key": process.env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" },
-    body: JSON.stringify({ model: process.env.CLAUDE_MODEL || "claude-sonnet-4-6", max_tokens: 400, messages: [{ role: "user", content: prompt }] }),
+    body: JSON.stringify({ model: process.env.CLAUDE_MODEL_FAST || "claude-haiku-4-5", max_tokens: 400, messages: [{ role: "user", content: prompt }] }),
   });
   // Upstream unreachable/erroring (bad key, exhausted credit, retired model,
   // rate limit, 5xx) is TRANSIENT — flag it so the caller returns parse_failed

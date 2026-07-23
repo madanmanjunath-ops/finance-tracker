@@ -82,7 +82,7 @@ function Settings({ state, actions, cloud }) {
   async function testAi() {
     setAiTest("testing"); setAiMsg("");
     try {
-      const r = await window.claude.complete("Reply with exactly: OK");
+      const r = await window.claude.complete("Reply with exactly: OK", { tier: "fast" });
       if (r && r.toUpperCase().includes("OK")) { setAiTest("ok"); setAiMsg("Connected — the AI features are live."); }
       else { setAiTest("ok"); setAiMsg("Connected. Response: " + String(r).slice(0, 60)); }
     } catch (e) { setAiTest("fail"); setAiMsg(e.message || "Connection failed."); }
@@ -268,7 +268,7 @@ function RenameRules({ state, actions }) {
 Descriptions:
 ${raw.slice(0, 40).map(m => "- " + m).join("\n")}`;
     try {
-      let out = (await window.claude.complete(prompt) || "").trim().replace(/^```(json)?/i, "").replace(/```$/, "").trim();
+      let out = (await window.claude.complete(prompt, { tier: "fast" }) || "").trim().replace(/^```(json)?/i, "").replace(/```$/, "").trim();
       const m = out.match(/\[[\s\S]*\]/);
       const arr = JSON.parse(m ? m[0] : out).filter(p => p.raw && p.name && p.raw !== p.name);
       if (!arr.length) { setErr("No improvements suggested."); setBusy(false); return; }

@@ -333,7 +333,7 @@ function CardModal({ state, editing, onClose, onSave }) {
 {"base": <percent value back on general spends>, "rates": {"dining": <pct>, "groceries": <pct>, "fuel": <pct>, "online": <pct>, "travel": <pct>, "utilities": <pct>}, "notes": "<one line summary>"}
 Use effective % value-back per ₹100 (e.g. 5 for 5%). Omit a category from rates if it has no special rate. Be realistic for 2026 post-devaluation.`;
     try {
-      let raw = (await window.claude.complete(prompt) || "").trim().replace(/^```(json)?/i, "").replace(/```$/, "").trim();
+      let raw = (await window.claude.complete(prompt, { tier: "fast" }) || "").trim().replace(/^```(json)?/i, "").replace(/```$/, "").trim();
       const m = raw.match(/\{[\s\S]*\}/); const o = JSON.parse(m ? m[0] : raw);
       setC(prev => ({ ...prev, base: o.base != null ? o.base : prev.base, rates: o.rates || prev.rates, aiNotes: o.notes || "" }));
       setAiMsg("Filled — review the rates below.");

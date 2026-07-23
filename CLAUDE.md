@@ -104,10 +104,11 @@ Netlify env vars.
 
 Prioritised; not yet fixed. Confirm scope with the user before tackling.
 
-1. **Default model string is stale.** All three functions default
-   `CLAUDE_MODEL` to `"claude-sonnet-4-6"`, which may not be a valid current
-   model. If `CLAUDE_MODEL` isn't set in Netlify, AI calls can fail. Recommend
-   setting `CLAUDE_MODEL` explicitly in Netlify and updating the default.
+1. ~~**Default model string is stale.**~~ **Fixed in v39.** Defaults are now
+   current: `CLAUDE_MODEL` → `claude-sonnet-5` (reasoning), and a new
+   `CLAUDE_MODEL_FAST` → `claude-haiku-4-5` (parsing/extraction). Both
+   overridable in Netlify. High-volume parsing routes to the cheap tier via
+   `tier:"fast"`; reasoning stays on the default. See CHANGELOG v39.
 2. **Inconsistent "liquid / emergency fund" definition** across screens
    (`buildAdvice` counts bank+cash only; `Compute.liquidBreakdown` includes FDs).
 3. **AI statement import forces `currency:"INR"`** — foreign-currency rows lose

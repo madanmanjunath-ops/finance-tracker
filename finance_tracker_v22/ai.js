@@ -25,7 +25,7 @@
   window.__AI_MODE = "proxy";
 
   window.claude = {
-    complete: async function (prompt) {
+    complete: async function (prompt, opts) {
       // Authenticate as the logged-in user: the proxy verifies this Supabase
       // session token and enforces per-user limits. (Replaces the shared secret.)
       var token = "";
@@ -33,6 +33,9 @@
       if (!token) {
         throw new Error("Please sign in to use AI features.");
       }
+
+      // tier:"fast" routes high-volume parsing/extraction to the cheap model.
+      var tier = (opts && opts.tier) || "";
 
       var res;
       try {
@@ -42,7 +45,7 @@
             "Content-Type": "application/json",
             "Authorization": "Bearer " + token,
           },
-          body: JSON.stringify({ prompt: String(prompt) }),
+          body: JSON.stringify({ prompt: String(prompt), tier: tier }),
         });
       } catch (e) {
         throw new Error("Could not reach the AI service. Check your connection or that the site is deployed with its function.");

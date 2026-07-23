@@ -59,7 +59,7 @@ async function aiTip(s) {
   try {
     const r = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST", headers: { "content-type": "application/json", "x-api-key": process.env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" },
-      body: JSON.stringify({ model: process.env.CLAUDE_MODEL || "claude-sonnet-4-6", max_tokens: 120, messages: [{ role: "user", content: `One punchy personal-finance tip (max 22 words) for someone with net worth ${fmt(s.net,s.cur)}, this-month savings rate ${s.savRate}%. No preamble.` }] }),
+      body: JSON.stringify({ model: process.env.CLAUDE_MODEL_FAST || "claude-haiku-4-5", max_tokens: 120, messages: [{ role: "user", content: `One punchy personal-finance tip (max 22 words) for someone with net worth ${fmt(s.net,s.cur)}, this-month savings rate ${s.savRate}%. No preamble.` }] }),
     });
     const j = await r.json(); return (j.content || []).map(b => b.text || "").join("").trim();
   } catch (e) { return ""; }
