@@ -1,5 +1,26 @@
 # Changelog
 
+## v39 — AI cost cut (cheap model for parsing, strong model for reasoning)
+
+- The `/api/claude` proxy now supports **two model tiers**. High-volume
+  parsing/extraction runs on the cheap model (`claude-haiku-4-5`, ~$1/$5 per 1M);
+  reasoning features (coach, plans, critique, chat, card advisor) stay on the
+  stronger default (`claude-sonnet-5`). A request opts into the cheap tier with
+  `tier:"fast"` in the body; anything else uses the default.
+- **Fixed the stale model default.** All server functions previously defaulted
+  `CLAUDE_MODEL` to `"claude-sonnet-4-6"`, which could fail if unset in Netlify.
+  Defaults are now current: `CLAUDE_MODEL` → `claude-sonnet-5`,
+  `CLAUDE_MODEL_FAST` → `claude-haiku-4-5`. Both remain overridable via Netlify
+  env vars (new: `CLAUDE_MODEL_FAST`).
+- **Fast tier** wired to: Gmail ingest (`ingest.js`, both copies), daily-email
+  tip, in-app single/bulk email parse, statement-file import, description
+  cleanup (rename), card rewards auto-fill, and the Settings test call.
+- **Default (reasoning) tier** kept for: financial coach/critic, chat, insights,
+  investment advice, and the card "best card for this spend" advisor.
+- `ai.js` `complete(prompt, opts)` now forwards `opts.tier`; the proxy health
+  check (GET) reports both `model` and `modelFast`.
+- Cache-bust `v=39`; service-worker cache `ft-v39`.
+
 ## v38 — Secure the AI proxy (per-user auth + rate limit)
 
 - The `/api/claude` proxy no longer relies on a shared `APP_SECRET` that every

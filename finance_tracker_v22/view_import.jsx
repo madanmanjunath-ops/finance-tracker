@@ -304,7 +304,7 @@ CRITICAL: merchant is the OTHER party (who you paid or who paid you), NOT the ba
 Rows:
 """${chunks[ci]}"""`;
       try {
-        let raw = (await window.claude.complete(prompt) || "").trim().replace(/^```(json)?/i, "").replace(/```$/, "").trim();
+        let raw = (await window.claude.complete(prompt, { tier: "fast" }) || "").trim().replace(/^```(json)?/i, "").replace(/```$/, "").trim();
         const m = raw.match(/\[[\s\S]*\]/); const arr = JSON.parse(m ? m[0] : raw);
         arr.forEach(o => {
           const amt = Math.abs(+String(o.amount).replace(/[^0-9.]/g, "")) || 0; if (!amt) return;

@@ -15,7 +15,11 @@
    Optional env vars: CLAUDE_MODEL (default below), AI_DAILY_LIMIT (default 300)
    ============================================================ */
 
-const MODEL = process.env.CLAUDE_MODEL || "claude-sonnet-4-6";
+// Two tiers to control cost. High-volume parsing/extraction runs on the cheap
+// model; reasoning features (coach, plans, critique) run on the stronger one.
+// Both overridable via Netlify env vars.
+const MODEL = process.env.CLAUDE_MODEL || "claude-sonnet-5";            // reasoning (default)
+const MODEL_FAST = process.env.CLAUDE_MODEL_FAST || "claude-haiku-4-5"; // parsing/extraction
 
 export default async (req) => {
   // Health check — open the function URL in a browser (GET).
@@ -29,6 +33,7 @@ export default async (req) => {
       hasSupabase: !!(process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_KEY),
       dailyLimit: parseInt(process.env.AI_DAILY_LIMIT || "300", 10),
       model: MODEL,
+      modelFast: MODEL_FAST,
       hint: !process.env.ANTHROPIC_API_KEY
         ? "This deploy does NOT see ANTHROPIC_API_KEY. Set it in Netlify env vars, then deploy AGAIN."
         : "AI requests must carry a logged-in user's Supabase session token (Authorization: Bearer).",
@@ -84,13 +89,19 @@ export default async (req) => {
   } catch (e) { /* fail open on rate-limit infra errors */ }
 
   let prompt = "";
+  let tier = "";
   try {
     const body = await req.json();
     prompt = String(body.prompt || "");
+    tier = String(body.tier || "");
   } catch (e) {
     return Response.json({ error: "Invalid request body" }, { status: 400 });
   }
   if (!prompt.trim()) return Response.json({ error: "Missing prompt" }, { status: 400 });
+
+  // High-volume parsing/extraction asks for the cheap model via tier:"fast".
+  // Everything else (coach, plans, critique, chat) uses the stronger default.
+  const model = tier === "fast" ? MODEL_FAST : MODEL;
 
   let upstream;
   try {
@@ -102,7 +113,7 @@ export default async (req) => {
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
-        model: MODEL,
+        model: model,
         max_tokens: 4096,
         stream: true,
         messages: [{ role: "user", content: prompt }],

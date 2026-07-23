@@ -88,7 +88,7 @@ Rules: detect the currency from symbols/codes (₹/Rs/INR, $/USD, €, £). Sala
 Email:
 """${text.slice(0, 2500)}"""`;
     try {
-      let raw = (await window.claude.complete(prompt) || "").trim().replace(/^```(json)?/i, "").replace(/```$/, "").trim();
+      let raw = (await window.claude.complete(prompt, { tier: "fast" }) || "").trim().replace(/^```(json)?/i, "").replace(/```$/, "").trim();
       const m = raw.match(/\{[\s\S]*\}/);
       const o = JSON.parse(m ? m[0] : raw);
       if (o.kind === "bill") {
@@ -251,7 +251,7 @@ Detect currency from symbols (₹/Rs/INR, $/USD, €, £); default INR. Credits/
 Text:
 """${text.slice(0, 3500)}"""`;
     try {
-      let raw = (await window.claude.complete(prompt) || "").trim().replace(/^```(json)?/i, "").replace(/```$/, "").trim();
+      let raw = (await window.claude.complete(prompt, { tier: "fast" }) || "").trim().replace(/^```(json)?/i, "").replace(/```$/, "").trim();
       const m = raw.match(/\[[\s\S]*\]/);
       const arr = JSON.parse(m ? m[0] : raw);
       setRows(arr.map(o => {
