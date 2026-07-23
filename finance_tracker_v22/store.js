@@ -402,6 +402,39 @@
     const m = String(text || "").match(/\b[a-z0-9._-]{2,}@[a-z]{2,}\b/i);
     return m ? m[0] : null;
   }
+  // Tidy a payee name: collapse spaces, drop a leading honorific, strip a
+  // trailing amount/currency remnant, de-shout ALL CAPS.
+  function cleanPayee(name) {
+    let n = String(name || "").trim().replace(/\s+/g, " ");
+    n = n.replace(/^(mr|mrs|ms|m\/s|dr|shri|smt)\.?\s+/i, "");
+    n = n.replace(/\s+(rs\.?|inr|₹)\s*\d*\.?\d*\s*$/i, "");
+    if (n && /[A-Z]/.test(n) && n === n.toUpperCase()) n = n.toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
+    return n.trim();
+  }
+  // Payee out of a UPI "Transaction Info" string, e.g. UPI/P2A/939904/SANTHOSH KUMAR.
+  function extractUpiPayee(text) {
+    const s = String(text || "");
+    let m = s.match(/UPI\/[A-Z0-9]+\/\d+\/([A-Za-z][A-Za-z .&'-]{1,60})/i);
+    if (m) return cleanPayee(m[1]);
+    m = s.match(/UPI\/[^\n]*?\/([A-Za-z][A-Za-z .&'-]{2,40})\s*$/m);
+    if (m) return cleanPayee(m[1]);
+    return null;
+  }
+  // bank/issuer names that are the email SENDER, never the payee
+  const BANKISH_RE = /^(hdfc|icici|axis|kotak|sbi|state bank|scapia|federal|amazon pay|amex|american express|idfc|yes bank|rbl|au small|au bank|indusind|citi|hsbc|standard chartered|pnb|canara|bob|bank of baroda|union bank)\b/i;
+  // generic non-name labels a model sometimes returns instead of the real payee
+  const GENERIC_RE = /^(transaction|upi(\s*(payment|transaction|transfer))?|payment|transfer|fund transfer|debit|credit|spent|purchase|unknown)\.?$/i;
+  // Best merchant label: trust a specific AI name, else fall back to the UPI
+  // payee parsed from the text, then the VPA. Mirrors the Gmail ingest logic so
+  // the in-app parsers name payees just as well.
+  function bestMerchant(aiName, text) {
+    const llmM = String(aiName || "").trim();
+    const upi = extractUpiPayee(text);
+    const vpa = extractVPA(text);
+    let merchant = (llmM && !GENERIC_RE.test(llmM) && !BANKISH_RE.test(llmM)) ? llmM : (upi || vpa || llmM || "Transaction");
+    if (BANKISH_RE.test(merchant) && upi) merchant = upi;
+    return String(merchant).slice(0, 80);
+  }
   // Robust parser for AI JSON responses: strips code fences and preamble,
   // extracts the first balanced {...} block, and tolerates trailing commas.
   function parseAIJson(raw) {
@@ -460,7 +493,7 @@
     CARD_DB, CARD_MAP, CUR, DEFAULT_FX,
     uid, todayISO, daysAgo, monthsAgo, load, save, reset, defaultState, migrate,
     fmt, fmtShort, relDate, monthLabel, daysUntil, floatDays, rewardRate, ordinal, nextDue, cardPartners, pointValue,
-    ownAccountHints, looksLikeTransfer, txnKey, TRANSFER_CAT, applyRenames, currentQuarter, parseAIJson, payTargets, payTargetName, extractVPA, incomePercentile, wealthTarget, BENCHMARKS,
+    ownAccountHints, looksLikeTransfer, txnKey, TRANSFER_CAT, applyRenames, currentQuarter, parseAIJson, payTargets, payTargetName, extractVPA, extractUpiPayee, bestMerchant, incomePercentile, wealthTarget, BENCHMARKS,
     annualYield: (a) => (a.rate ? (a.balance || 0) * a.rate / 100 : 0),
     fdMaturityDays: (a) => a.maturityDate ? Math.round((new Date(a.maturityDate) - new Date()) / 86400000) : null,
     catOf: (id) => CAT_MAP[id] || { name: "Other", color: "var(--text-3)", emoji: "✦", rew: "general" },

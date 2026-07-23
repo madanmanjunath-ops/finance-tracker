@@ -296,10 +296,33 @@ function CardModal({ state, editing, onClose, onSave }) {
   const cur = state.displayCurrency;
   const blank = { id: "card_" + FT.uid(), name: "", cardType: "amzicici", network: "Visa", last4: "", limit: 0, billingDay: 1, dueDay: 18, graceDays: 20, balance: 0, currency: "INR", rates: null, points: 0, ptValue: null, stmtAmount: 0, stmtDueDate: "", partners: null };
   const [c, setC] = useState(editing ? { ...editing } : blank);
+  // "Available now" is what the user edits; Used = limit − available. On save we
+  // write it as an authoritative anchor (see saveCard). Prefill from the current
+  // derived available when editing, blank (= full limit) for a new card.
+  const [availIn, setAvailIn] = useState(editing ? String(Math.round(Compute.cardAvailable(editing, state))) : "");
   const [aiBusy, setAiBusy] = useState(false);
   const [aiMsg, setAiMsg] = useState("");
   const def = FT.cardDef(c.cardType);
   const set = (k, v) => setC({ ...c, [k]: v });
+  // Resolve the available figure the user typed (blank → full limit).
+  function resolveAvail() {
+    const lim = c.limit || 0;
+    return availIn === "" ? lim : Math.max(0, Math.min(lim || Infinity, +availIn || 0));
+  }
+  // Persist: anchor the card's available to the entered value as of today, so it
+  // becomes ground truth (this also cleans up any wrong accumulated history).
+  function saveCard() {
+    const lim = c.limit || 0;
+    const next = { ...c };
+    if (lim > 0) {
+      const av = resolveAvail();
+      next.availAnchor = av;
+      next.availAnchorDate = FT.todayISO();
+      next.availAnchorExact = true;
+      next.balance = Math.max(0, lim - av); // keep outstanding in sync for snapshots
+    }
+    onSave(next);
+  }
   const effRates = c.rates || def.rates || {};
   const partnersStr = (c.partners != null ? c.partners : FT.cardPartners(c)).join(", ");
 
@@ -323,7 +346,7 @@ Use effective % value-back per ₹100 (e.g. 5 for 5%). Omit a category from rate
       foot={<>
         {editing && <button className="btn btn-ghost" style={{ color: "var(--neg)", marginRight: "auto" }} onClick={() => onSave(null, editing.id)}><Icon name="trash" size={15} />Delete</button>}
         <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
-        <button className="btn btn-primary" onClick={() => onSave(c)}><Icon name="check" size={16} />Save card</button>
+        <button className="btn btn-primary" onClick={saveCard}><Icon name="check" size={16} />Save card</button>
       </>}>
       <div className="modal-body">
         <div className="field"><label className="label">Card</label>
@@ -339,7 +362,12 @@ Use effective % value-back per ₹100 (e.g. 5 for 5%). Omit a category from rate
         </div>
         <div className="row" style={{ gap: 12 }}>
           <div className="field" style={{ flex: 1 }}><label className="label">Credit limit</label><input className="input num" type="number" value={c.limit || ""} onChange={e => set("limit", +e.target.value)} /></div>
-          <div className="field" style={{ flex: 1 }}><label className="label">Outstanding</label><input className="input num" type="number" value={c.balance || ""} onChange={e => set("balance", +e.target.value)} /></div>
+          <div className="field" style={{ flex: 1 }}><label className="label">Available now</label><input className="input num" type="number" value={availIn} placeholder={c.limit ? String(c.limit) : "full limit"} onChange={e => setAvailIn(e.target.value)} /></div>
+        </div>
+        <div style={{ fontSize: 11.5, color: "var(--text-3)", marginTop: -4, marginBottom: 4, lineHeight: 1.5 }}>
+          {c.limit
+            ? `Used: ${FT.fmt((c.limit || 0) - resolveAvail(), c.currency || "INR")} of ${FT.fmt(c.limit || 0, c.currency || "INR")}. Enter the available limit your bank app/statement shows — this sets it now; card emails and new spends adjust it from here. Leave blank for a brand-new, unused card.`
+            : "Enter your credit limit to start tracking usage."}
         </div>
         <div className="row" style={{ gap: 12 }}>
           <div className="field" style={{ flex: 1 }}><label className="label">Statement day</label><input className="input num" type="number" min="1" max="28" value={c.billingDay} onChange={e => set("billingDay", +e.target.value)} /></div>

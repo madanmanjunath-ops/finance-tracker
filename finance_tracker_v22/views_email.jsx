@@ -82,6 +82,7 @@ CRITICAL: merchant is the OTHER party (who you paid or who paid you), NOT the ba
 
 Valid category ids: ${catList}
 
+AMOUNT RULE: "amount" is the value of THIS transaction only — the exact money that moved. NEVER use the available balance, available/credit limit, outstanding, total amount due, or reward points (those are different, usually larger numbers in the same email).
 Rules: detect the currency from symbols/codes (₹/Rs/INR, $/USD, €, £). Salary/credit/dividend/refund/interest/rent-received = income; purchases/bills-paid/debits = expense. If the money simply moves between the user's OWN accounts, or it's a credit-card bill payment from the user's own bank, set "type":"transfer" and "category":"transfer" (it must NOT count as income or expense).${ownLine} If no clear date use ${FT.todayISO()}.
 
 Email:
@@ -103,7 +104,7 @@ Email:
       } else {
         let type = o.type === "income" ? "income" : o.type === "transfer" ? "transfer" : "expense";
         if (type !== "transfer" && FT.looksLikeTransfer(text, state)) type = "transfer";
-        let rawName = o.merchant && o.merchant.toLowerCase() !== "unknown" ? o.merchant : (FT.extractVPA(text) || "Unknown");
+        let rawName = FT.bestMerchant(o.merchant, text);
         const ren = FT.applyRenames(rawName, state);
         if (ren.category && FT.CAT_MAP[ren.category]) o.category = ren.category;
         setParsed({
@@ -244,6 +245,7 @@ function BulkParse({ state, actions }) {
 Each item: {"type":"income"|"expense"|"transfer","amount":<number>,"currency":"INR"|"USD"|"EUR"|"GBP","merchant":"<string>","account":"<bank/card + last4 if present, else null>","date":"YYYY-MM-DD","category":"<id or 'transfer'>"}
 "merchant" must be a SHORT, human-friendly label a person instantly recognizes — the brand, payee, or purpose. NEVER raw bank names, reference numbers, or codes. Examples: "Swiggy", "House rent", "Skoda car EMI", "Salary". For a credit-card bill payment, name it "<card name> bill" using the user's card list.
 Valid category ids: ${catList}
+AMOUNT RULE: each "amount" is the value of that single transaction only — never the available/credit limit, available balance, outstanding, or total due.
 Detect currency from symbols (₹/Rs/INR, $/USD, €, £); default INR. Credits/salary/rent-received/refunds/dividends = income; the rest = expense. If money moves between the user's OWN accounts, or it's a credit-card bill payment from the user's own bank, set "type":"transfer" and "category":"transfer" (must NOT count as income/expense).${ownLine} If a year is missing, assume the current year. If a date is missing entirely, use ${FT.todayISO()}.
 
 Text:
@@ -255,7 +257,7 @@ Text:
       setRows(arr.map(o => {
         let type = o.type === "income" ? "income" : o.type === "transfer" ? "transfer" : "expense";
         if (type !== "transfer" && FT.looksLikeTransfer(o.merchant, state)) type = "transfer";
-        const rawName = o.merchant && o.merchant.toLowerCase() !== "unknown" ? o.merchant : (FT.extractVPA((o.merchant || "") + " " + (o.account || "")) || "Unknown");
+        const rawName = FT.bestMerchant(o.merchant, (o.merchant || "") + " " + (o.account || ""));
         const ren = FT.applyRenames(rawName, state);
         if (ren.category && FT.CAT_MAP[ren.category]) o.category = ren.category;
         return {

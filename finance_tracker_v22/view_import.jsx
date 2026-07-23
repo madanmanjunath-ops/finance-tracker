@@ -299,7 +299,7 @@ function FileImport({ state, actions }) {
       setStatus(`AI reading… part ${ci + 1} of ${N}`);
       const prompt = `You are importing a bank or credit-card statement that may be in ANY layout — any columns, any order, extra header/footer/summary rows, merged cells. Extract EVERY real transaction. Respond ONLY a JSON array, no prose:
 [{"type":"income"|"expense"|"transfer","amount":<number>,"merchant":"<payee / description>","date":"YYYY-MM-DD","category":"<one of: ${FT.EXPENSE_CATS.map(c=>c.id).join("/")}/${FT.INCOME_CATS.map(c=>c.id).join("/")}/transfer>"}]
-CRITICAL: merchant is the OTHER party (who you paid or who paid you), NOT the bank/app that sent the alert. Ignore the sender/From line; look in the body for "paid to", "to VPA", "at <merchant>", "received from", or the UPI handle. "merchant" must be a SHORT, human-friendly label a person instantly recognizes — the brand, payee, or purpose. NEVER raw bank names, reference numbers, or codes. Examples: "Swiggy", "House rent", "Skoda car EMI", "Salary". For a credit-card bill payment, name it "<card name> bill" using the user's card list. Rules: money IN (credit/deposit/refund/salary/cashback/interest) = income; money OUT (debit/purchase/payment/withdrawal/EMI) = expense. amount is a positive number with no symbols/commas. Infer the date format from context; only use the current year if no year is present anywhere. IGNORE opening/closing balance, totals, and header rows. Pick the closest category id.${ownLine}
+CRITICAL: merchant is the OTHER party (who you paid or who paid you), NOT the bank/app that sent the alert. Ignore the sender/From line; look in the body for "paid to", "to VPA", "at <merchant>", "received from", or the UPI handle. "merchant" must be a SHORT, human-friendly label a person instantly recognizes — the brand, payee, or purpose. NEVER raw bank names, reference numbers, or codes. Examples: "Swiggy", "House rent", "Skoda car EMI", "Salary". For a credit-card bill payment, name it "<card name> bill" using the user's card list. Rules: money IN (credit/deposit/refund/salary/cashback/interest) = income; money OUT (debit/purchase/payment/withdrawal/EMI) = expense. amount is a positive number with no symbols/commas — the value of that single transaction ONLY, never a running/available balance, credit limit, or statement total. Infer the date format from context; only use the current year if no year is present anywhere. IGNORE opening/closing balance, totals, and header rows. Pick the closest category id.${ownLine}
 
 Rows:
 """${chunks[ci]}"""`;
@@ -311,7 +311,7 @@ Rows:
           const date = /^\d{4}-\d{2}-\d{2}$/.test(o.date) ? o.date : null; if (!date) return;
           let type = o.type === "income" ? "income" : o.type === "transfer" ? "transfer" : "expense";
           if (type !== "transfer" && FT.looksLikeTransfer(o.merchant, state)) type = "transfer";
-          const ren = FT.applyRenames(o.merchant || "Transaction", state);
+          const ren = FT.applyRenames(FT.bestMerchant(o.merchant, (o.merchant || "") + " " + (o.account || "")), state);
           if (ren.category && FT.CAT_MAP[ren.category] && o.category !== "transfer") o.category = ren.category;
           out.push({ id: FT.uid(), include: true, type, amount: amt, currency: "INR",
             merchant: ren.name.slice(0, 80),

@@ -83,8 +83,18 @@ function matchCardStrict(text, data) {
 // right before the number so a card's last-4 between "limit" and the amount
 // (e.g. "available limit on card ending 1234 is Rs 39,950") isn't grabbed.
 function availFromText(text) {
-  const m = String(text || "").match(/available\s+(?:credit\s+)?limit\b[\s\S]{0,60}?(?:rs\.?|inr|₹)\s*([\d,]+(?:\.\d+)?)/i);
+  // Match many phrasings: available limit / available credit limit / available
+  // credit / available balance / avl bal / avl lmt / avbl bal. Still require a
+  // currency marker right before the number so a last-4 isn't mistaken for it.
+  const m = String(text || "").match(/(?:available|avl|avbl)\.?\s*(?:credit\s*)?(?:limit|lmt|balance|bal|cr\.?\s*limit)\b[\s\S]{0,40}?(?:rs\.?|inr|₹)\s*([\d,]+(?:\.\d+)?)/i);
   return m ? +m[1].replace(/,/g, "") : null;
+}
+// The available figure stated in an email: prefer the AI's parsed number,
+// fall back to the regex. Returns a non-negative number or null.
+function statedAvail(o, text) {
+  if (o && typeof o.availableLimit === "number" && isFinite(o.availableLimit) && o.availableLimit >= 0) return o.availableLimit;
+  const r = availFromText(text);
+  return r != null && r >= 0 ? r : null;
 }
 
 async function parseEmail(text, data) {
@@ -95,7 +105,9 @@ async function parseEmail(text, data) {
   const prompt = `Read this email and classify it. Respond ONLY JSON, no prose.
 
 If it confirms a transaction that ALREADY HAPPENED (debited/credited/spent/received):
-{"kind":"transaction","type":"income"|"expense"|"transfer","amount":<number>,"currency":"INR"|"USD"|"EUR"|"GBP","merchant":"<string>","account":"<string|null>","date":"YYYY-MM-DD","category":"<id or 'transfer'>","confidence":<0-100>}
+{"kind":"transaction","type":"income"|"expense"|"transfer","amount":<number>,"currency":"INR"|"USD"|"EUR"|"GBP","merchant":"<string>","account":"<string|null>","date":"YYYY-MM-DD","category":"<id or 'transfer'>","availableLimit":<number or null>,"confidence":<0-100>}
+
+CRITICAL — "amount" is the value of THIS transaction ONLY: the exact money that moved (spent/debited/credited/received). It is NEVER the available balance, available credit limit, outstanding balance, total amount due, or reward points — those are different, usually larger, numbers that also appear in the email. For a credit-card spend, put the remaining available credit/limit/balance the email states (e.g. "Available limit Rs 1,17,000", "Avl Bal 39,950") into "availableLimit" as a plain number, and the amount actually spent into "amount". If no available figure is stated, set "availableLimit":null.
 
 "merchant" must be a SHORT, human-friendly label a person instantly recognizes — the brand, payee, or purpose. CRITICAL: this is the OTHER party in the transaction (who you paid, or who paid you), NOT the bank or service that SENT the email. Ignore the email's sender/From line entirely — a debit alert from "HDFC Bank" about a payment to "Swiggy" has merchant "Swiggy", not "HDFC". Look inside the body for "paid to", "to VPA", "at <merchant>", "towards", "received from", the UPI handle, or the payee name. NEVER use raw bank names, reference numbers, or codes. If the only name you can find is a bank/card issuer (HDFC, ICICI, Axis, Kotak, SBI, Scapia, Federal, Amazon Pay, Amex, IDFC, Yes Bank, RBL, AU, IndusInd, etc.), that is the SENDER, not the merchant — do NOT use it; instead look harder in the body for the real payee, or use the UPI VPA, or return merchant "Unknown" so the app can fall back. Examples: "Swiggy", "House rent", "Skoda car EMI", "Salary". For a credit-card bill payment, name it "<card name> bill" using the user's card list (e.g. "Kotak Solitaire bill"). "account" is which of the user's accounts/cards the money moved on — if the email mentions a card (by name or last-4 digits), put that card's name and include its last 4 digits in "account" (e.g. "HDFC Infinia 0042"); copied from the user's list below if identifiable, else null.
 
@@ -103,7 +115,7 @@ If it announces a bill or payment that is DUE IN THE FUTURE (bill generated, sta
 {"kind":"bill","amount":<number, the amount due>,"currency":"INR"|"USD"|"EUR"|"GBP","merchant":"<biller name>","dueDate":"YYYY-MM-DD","category":"<id>","confidence":<0-100>}
 For a credit-card statement use the TOTAL amount due and category "cardpay". For utilities/phone/internet use "bills", insurance "health" or "bills", rent "rent", loan EMI "emi", subscriptions "subs".
 
-Expense ids: ${EXP_CATS.join("/")}. Income ids: ${INC_CATS.join("/")}. Credits/salary/refund/interest=income; debits/purchases=expense.${ownLine} If no clear date use ${todayISO()}. If it's neither (promotions, OTPs, balance summaries), return {"amount":0}.
+Expense ids: ${EXP_CATS.join("/")}. Income ids: ${INC_CATS.join("/")}. Credits/salary/refund/interest=income; debits/purchases=expense.${ownLine} If no clear date use ${todayISO()}. If it's neither a real completed transaction nor a due bill — i.e. a promotion, OTP, pure balance/limit summary, or a DECLINED/FAILED/reversed transaction — return {"amount":0} (you may still include "availableLimit" if the email states one).
 Email:
 """${String(text).slice(0, 2500)}"""`;
   const r = await fetch("https://api.anthropic.com/v1/messages", {
@@ -166,8 +178,13 @@ exports.handler = async (event) => {
   // (handled in the bill branch) updates the card's next-due fields.
   const cardUpdates = {}; // cid -> partial card patch
   const mCid = matchCardStrict(text, data); // number-verified: no last-4 → no limit/statement change
-  const mAvail = availFromText(text);
-  if (mCid && mAvail != null && mAvail >= 0) cardUpdates[mCid] = { ...(cardUpdates[mCid] || {}), availAnchor: mAvail, availAnchorDate: todayISO(), availAnchorExact: true };
+  const mAvail = statedAvail(o, text);
+  if (mCid && mAvail != null) {
+    const card0 = (data.cards || []).find(c => c.id === mCid);
+    const lim0 = card0 && card0.limit ? card0.limit : 0;
+    cardUpdates[mCid] = { ...(cardUpdates[mCid] || {}), availAnchor: mAvail, availAnchorDate: todayISO(), availAnchorExact: true };
+    if (lim0 > 0) cardUpdates[mCid].balance = Math.max(0, lim0 - mAvail);
+  }
   const applyCardUpdates = (next) => {
     const ids = Object.keys(cardUpdates);
     if (ids.length) next.cards = (next.cards || []).map(c => cardUpdates[c.id] ? { ...c, ...cardUpdates[c.id] } : c);
@@ -312,6 +329,21 @@ exports.handler = async (event) => {
       next.transactions = [txn, ...next.transactions].sort((a, b) => b.date.localeCompare(a.date));
       await sbPatch(user_id, next);
       return json(200, { ok: true, booked: "transfer_merged", merchant: txn.merchant, amount: amt });
+    }
+  }
+
+  // Email-verified available: anchor the card this spend sits on to the stated
+  // available figure (ground truth) as of the txn date. The spend still books
+  // for analytics; the exact anchor keeps available trusted from the bank, not
+  // just derived — so a mis-read amount can't quietly corrupt the limit.
+  if (mAvail != null) {
+    let cid = mCid;
+    if (!cid && String(accountId).indexOf("card:") === 0) cid = String(accountId).slice(5);
+    if (cid) {
+      const card = (data.cards || []).find(c => c.id === cid);
+      const lim = card && card.limit ? card.limit : 0;
+      cardUpdates[cid] = { ...(cardUpdates[cid] || {}), availAnchor: mAvail, availAnchorDate: txn.date, availAnchorExact: true };
+      if (lim > 0) cardUpdates[cid].balance = Math.max(0, lim - mAvail);
     }
   }
 
