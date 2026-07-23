@@ -84,10 +84,16 @@ Netlify env vars.
 
 ## Working agreement (how we make changes)
 
+- **Never publish to `main` (the live site) without the owner's explicit
+  approval for that specific change.** This is a hard rule. Recommend
+  preview-first for anything risky (app logic, money math, serverless
+  functions) and direct-publish for trivial changes (docs, copy) — but ALWAYS
+  ask before it goes live, every time.
 - Make changes on a **branch**, not directly on `main`.
-- Prefer to **preview before publishing**: let Netlify build a preview of the
-  branch, confirm it works, then merge to `main` to go live. This protects the
-  live app from a bad deploy.
+- **Preview before publishing** when the change is risky: the site is connected
+  to GitHub, so Netlify builds a preview of the branch automatically. Confirm it
+  works, then merge to `main` to go live. This protects the live app from a bad
+  deploy.
 - Write **descriptive commit messages** (what changed and why). The pre-existing
   "Add files via upload" commits are drag-and-drop uploads — don't emulate them.
 - **Never commit secrets.** Keys go in Netlify env vars. `.gitignore` blocks the
