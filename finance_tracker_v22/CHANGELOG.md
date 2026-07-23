@@ -1,5 +1,21 @@
 # Changelog
 
+## v38 — Secure the AI proxy (per-user auth + rate limit)
+
+- The `/api/claude` proxy no longer relies on a shared `APP_SECRET` that every
+  browser held. Each AI request now carries the **logged-in user's Supabase
+  session token** (`Authorization: Bearer`), which the function verifies against
+  Supabase before calling Anthropic. Requests without a valid session get `401`.
+- **Per-user daily rate cap** via a Postgres `increment_ai_usage` RPC + an
+  `ai_usage` table (see `AI-PROXY-SECURITY.md` for the one-time SQL). Configurable
+  with `AI_DAILY_LIMIT` (default 300). Over the cap returns `429`. The cap fails
+  **open** on infra errors so a DB blip never blocks AI; auth fails **closed**.
+- `ai.js` sends the session token (via new `Cloud.getAccessToken()`) instead of
+  the shared secret; Settings → AI service drops the manual key box ("secured by
+  your login") and keeps Test connection.
+- `APP_SECRET` env var is now unused and can be removed after deploy.
+- Cache-bust `v=38`; service-worker cache `ft-v38`.
+
 ## v37 — Sign in with Google (SSO)
 
 - Added a **"Continue with Google"** button to the auth screen, wired to

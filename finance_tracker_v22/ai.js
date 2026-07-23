@@ -26,8 +26,13 @@
 
   window.claude = {
     complete: async function (prompt) {
-      var accessKey = "";
-      try { accessKey = localStorage.getItem("ft_ai_access_key") || ""; } catch (e) {}
+      // Authenticate as the logged-in user: the proxy verifies this Supabase
+      // session token and enforces per-user limits. (Replaces the shared secret.)
+      var token = "";
+      try { if (window.Cloud && typeof Cloud.getAccessToken === "function") token = await Cloud.getAccessToken(); } catch (e) {}
+      if (!token) {
+        throw new Error("Please sign in to use AI features.");
+      }
 
       var res;
       try {
@@ -35,7 +40,7 @@
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            "x-app-secret": accessKey,
+            "Authorization": "Bearer " + token,
           },
           body: JSON.stringify({ prompt: String(prompt) }),
         });
@@ -44,7 +49,10 @@
       }
 
       if (res.status === 401) {
-        throw new Error("AI access key missing or wrong. Set it in Settings → AI service.");
+        throw new Error("Your session expired. Sign out and back in, then try again.");
+      }
+      if (res.status === 429) {
+        throw new Error("You've reached today's AI usage limit. Please try again tomorrow.");
       }
       if (!res.ok) {
         var msg = "AI request failed (" + res.status + ").";
