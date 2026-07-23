@@ -28,6 +28,11 @@ var LOOKBACK_DAYS = 3;
 var BACKFILL_DAYS = 365;          // window for the optional manual backfill
 var MAX_PER_RUN = 60;             // cap per run so Apps Script doesn't time out
 
+// A transient failure (server/AI/billing outage) is NOT marked seen, so it
+// retries on later runs and recovers on its own once the outage clears. Give
+// up after this many days so a genuinely unprocessable email can't loop forever.
+var GIVE_UP_DAYS = 7;
+
 // Which emails count. Two groups:
 //  1) transaction alerts (debited/credited/spent), and
 //  2) BILL emails (bill generated, payment due, premium/EMI/recharge reminders)
@@ -94,8 +99,10 @@ function run(query, enforceCutoff) {
   var threads = GmailApp.search(query, 0, 200);
   var props = PropertiesService.getUserProperties();
   var seen = JSON.parse(props.getProperty("seenIds") || "{}");
+  var fails = JSON.parse(props.getProperty("failIds") || "{}"); // id -> first-failure time (ms)
   var startAfterMs = enforceCutoff ? getStartAfter() * 1000 : 0;
-  var processed = 0, scanned = 0;
+  var giveUpMs = GIVE_UP_DAYS * 86400000;
+  var attempts = 0, scanned = 0, booked = 0, willRetry = 0, gaveUp = 0;
 
   outer:
   for (var t = 0; t < threads.length; t++) {
@@ -109,11 +116,18 @@ function run(query, enforceCutoff) {
       // search (threads match by any message). Skip anything at/before the
       // cutoff and mark it seen so it's never forwarded or rescanned.
       if (startAfterMs && msg.getDate().getTime() <= startAfterMs) { seen[id] = Date.now(); continue; }
+
       var body = msg.getPlainBody();
       // NOTE: we deliberately do NOT prepend "From: <sender>" to the text — the
       // bank's name in the From line was anchoring the AI to pick the bank as the
       // merchant instead of the actual payee in the body. Send subject + body only.
       var text = "Subject: " + msg.getSubject() + "\n\n" + body;
+
+      // Forward, then decide whether the server DEFINITIVELY handled it (terminal)
+      // or this was a transient failure to retry later. We mark a message seen
+      // ONLY on a terminal outcome, so an outage (HTTP error / parse_failed)
+      // leaves it unseen and it re-forwards automatically once the outage clears.
+      var terminal = false, logLine = "";
       try {
         var res = UrlFetchApp.fetch(WEBHOOK_URL, {
           method: "post",
@@ -121,21 +135,44 @@ function run(query, enforceCutoff) {
           muteHttpExceptions: true,
           payload: JSON.stringify({ token: INGEST_TOKEN, text: text.slice(0, 4000), sender: msg.getFrom() }),
         });
-        Logger.log(msg.getSubject() + " → " + res.getResponseCode() + " " + res.getContentText());
-        seen[id] = Date.now();
-        processed++;
-        if (processed >= MAX_PER_RUN) { Logger.log("Hit MAX_PER_RUN (" + MAX_PER_RUN + ") — run again to continue."); break outer; }
+        var code = res.getResponseCode();
+        var bodyTxt = res.getContentText();
+        var ok = false, reason = "";
+        try { var j = JSON.parse(bodyTxt); ok = (j.ok === true); reason = j.reason || j.booked || ""; } catch (eParse) {}
+        // Terminal = HTTP 200 AND (ok:true OR any ok:false reason other than
+        // "parse_failed"). Only parse_failed and HTTP/network errors are transient.
+        terminal = (code === 200) && (ok || (reason && reason !== "parse_failed"));
+        logLine = code + " " + bodyTxt;
       } catch (e) {
-        Logger.log("Error: " + e);
+        terminal = false; // network-level failure (DNS/timeout) → transient
+        logLine = "fetch error: " + e;
       }
+      Logger.log(msg.getSubject() + " → " + logLine + (terminal ? "" : " [transient — will retry]"));
+
+      if (terminal) {
+        seen[id] = Date.now(); delete fails[id]; booked++;
+      } else {
+        // keep it UNSEEN so it retries — unless it has been failing longer than
+        // GIVE_UP_DAYS, in which case stop retrying so it can't loop forever.
+        if (!fails[id]) fails[id] = Date.now();
+        if (Date.now() - fails[id] > giveUpMs) {
+          seen[id] = Date.now(); delete fails[id]; gaveUp++;
+          Logger.log("Gave up after " + GIVE_UP_DAYS + "d, marking seen: " + msg.getSubject());
+        } else { willRetry++; }
+      }
+
+      attempts++;
+      if (attempts >= MAX_PER_RUN) { Logger.log("Hit MAX_PER_RUN (" + MAX_PER_RUN + ") — run again to continue."); break outer; }
     }
   }
 
-  // prune old seen ids (keep ~45 days)
+  // prune old seen ids (keep ~45 days); drop fail records that are now seen
   var cutoff = Date.now() - 45 * 86400000;
   Object.keys(seen).forEach(function (k) { if (seen[k] < cutoff) delete seen[k]; });
+  Object.keys(fails).forEach(function (k) { if (seen[k]) delete fails[k]; });
   props.setProperty("seenIds", JSON.stringify(seen));
-  Logger.log("Done. Scanned " + scanned + " message(s), forwarded " + processed + " new one(s).");
+  props.setProperty("failIds", JSON.stringify(fails));
+  Logger.log("Done. Scanned " + scanned + ", forwarded " + booked + ", will retry " + willRetry + ", gave up " + gaveUp + ".");
 }
 
 // Run this ONCE to test + approve permissions (checks the last few days)

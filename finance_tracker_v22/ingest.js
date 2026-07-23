@@ -110,9 +110,16 @@ Email:
     method: "POST", headers: { "content-type": "application/json", "x-api-key": process.env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" },
     body: JSON.stringify({ model: process.env.CLAUDE_MODEL || "claude-sonnet-4-6", max_tokens: 400, messages: [{ role: "user", content: prompt }] }),
   });
+  // Upstream unreachable/erroring (bad key, exhausted credit, retired model,
+  // rate limit, 5xx) is TRANSIENT — flag it so the caller returns parse_failed
+  // and the Gmail forwarder retries later instead of losing the email.
+  if (!r.ok) { const e = new Error("anthropic_http_" + r.status); e.transient = true; throw e; }
   const j = await r.json();
+  if (j && j.type === "error") { const e = new Error("anthropic_error"); e.transient = true; throw e; }
   let raw = ((j.content || []).map(b => b.text || "").join("")).trim().replace(/^```(json)?/i, "").replace(/```$/, "").trim();
-  const m = raw.match(/\{[\s\S]*\}/); return JSON.parse(m ? m[0] : raw);
+  const m = raw.match(/\{[\s\S]*\}/);
+  // The model replied but we couldn't parse JSON out of it — NOT transient.
+  return JSON.parse(m ? m[0] : raw);
 }
 
 exports.handler = async (event) => {
@@ -129,7 +136,29 @@ exports.handler = async (event) => {
   if (!rows || !rows.length) return json(403, { error: "Unknown ingest token" });
   const { user_id, data } = rows[0];
 
-  let o; try { o = await parseEmail(text, data); } catch (e) { return json(200, { ok: false, reason: "parse_failed" }); }
+  let o;
+  try {
+    o = await parseEmail(text, data);
+  } catch (e) {
+    // Transient upstream failure (outage / billing / rate limit): tell the
+    // forwarder to retry later — book nothing, so the email is neither lost
+    // nor later duplicated when the retry succeeds.
+    if (e && e.transient) return json(200, { ok: false, reason: "parse_failed" });
+    // The model responded but its output couldn't be parsed. Rather than drop
+    // the email silently, surface it in the Review inbox as a stub the user can
+    // see, edit and confirm — and mark it handled so the forwarder won't retry.
+    const stub = {
+      id: uid(), type: "expense", amount: 0,
+      currency: "INR", merchant: "Unparsed bank email — needs review",
+      category: "uncat", account: (data.accounts && data.accounts[0] && data.accounts[0].id) || "",
+      date: todayISO(), note: String(text || "").slice(0, 400),
+      source: "gmail", status: "pending", confidence: 0, tags: ["parse-failed"],
+    };
+    const next = JSON.parse(JSON.stringify(data));
+    next.pending = [stub, ...(next.pending || [])];
+    try { await sbPatch(user_id, next); } catch (e2) { return json(200, { ok: false, reason: "parse_failed" }); }
+    return json(200, { ok: true, booked: "pending_unparsed" });
+  }
   const amt = Math.abs(+String(o.amount).replace(/[^0-9.]/g, "")) || 0;
 
   // ---- card-side updates that can ride on ANY email, transaction or not ----
