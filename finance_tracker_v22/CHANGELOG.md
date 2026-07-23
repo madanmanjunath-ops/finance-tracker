@@ -1,5 +1,39 @@
 # Changelog
 
+## v36 — Card limits: stop phantom "Used" growth + email-verified available
+
+### Root-cause fix (Used inflating on its own)
+- Email parsers sometimes captured a card's **available balance** (the big
+  number in an alert) as the transaction **amount**, booking a huge phantom
+  expense that ballooned "Used". All three AI parsers (Gmail ingest, in-app
+  single/bulk, statement-file) now get an explicit **amount rule**: `amount`
+  is the value of THIS transaction only — never the available balance/limit,
+  outstanding, statement total, or points.
+
+### Available is now verified from emails
+- Card transaction emails carry the remaining available credit. The Gmail
+  ingest prompt now returns it as a dedicated `availableLimit` field, and the
+  regex fallback matches many phrasings ("available limit/credit/balance",
+  "Avl Bal", "avl lmt"). Every card email **re-anchors** that card's available
+  to the bank's own figure (authoritative as of the email date). Used is then
+  simply `Limit − Available`.
+
+### Manual override in the card editor
+- The card editor now has an **"Available now"** field (replacing the
+  ignored "Outstanding" box). Enter your true available limit and Used is
+  computed; saving writes an authoritative anchor as of today — which also
+  clears any wrong accumulated history for that card.
+
+### Stronger payee names
+- The strong merchant/UPI-payee extraction (bank-name + generic-label
+  guards, UPI `.../PAYEE` parsing, VPA fallback) is now shared via
+  `FT.bestMerchant` and used by the in-app parsers too, not just Gmail ingest.
+
+### Consistency
+- Net worth now derives card debt from `Compute.cardUsed` (the single source
+  of truth) instead of the stored balance, so it tracks spends correctly.
+- Cache-bust bumped to `v=36`; service-worker cache `ft-v36`.
+
 ## v35.1 — Email parsing fixes (UPI payee, self-transfers)
 - **UPI merchant capture fixed.** When the model returned a generic label
   ("Transaction") or a bank name instead of the payee, the real name was

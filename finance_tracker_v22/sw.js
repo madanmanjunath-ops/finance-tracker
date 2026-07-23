@@ -5,7 +5,7 @@
    it's reachable, and successful responses refresh the cache in the background.
 
    Bump CACHE_VERSION on any release that changes the offline shell. */
-const CACHE_VERSION = "ft-v35";
+const CACHE_VERSION = "ft-v36";
 const CORE = [
   "./index.html",
   "./styles.css",

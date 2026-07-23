@@ -140,7 +140,9 @@ const Compute = (function () {
   function netWorth(state) {
     let assets = 0, liabilities = 0;
     state.accounts.forEach(a => { const t = FT.acctType(a.type); const v = liveBal(a, state); if (t.asset) assets += v; else liabilities += Math.abs(v); });
-    (state.cards || []).forEach(c => { liabilities += conv(c.balance || 0, c.currency || "INR", state); });
+    // card debt = what's actually used (single source of truth), converted —
+    // not the stored balance, which doesn't track spends since the last anchor.
+    (state.cards || []).forEach(c => { liabilities += conv(cardUsed(c, state), c.currency || "INR", state); });
     (state.loans || []).forEach(l => { liabilities += conv(l.outstanding || 0, l.currency || "INR", state); });
     assets += owedToYou(state); // money friends owe you is a real asset
     return { assets, liabilities, net: assets - liabilities };
