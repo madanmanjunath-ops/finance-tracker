@@ -71,6 +71,20 @@
       if (error) throw new Error(error.message);
       return data.user;
     },
+    // Google SSO: kicks off a full-page redirect to Google, then back to the
+    // app. The client's detectSessionInUrl picks up the session on return and
+    // onAuthChange fires — so there's nothing to await here beyond the redirect.
+    // Requires the Google provider to be enabled in the Supabase dashboard.
+    async signInWithGoogle() {
+      var c = client(); if (!c) throw new Error("Cloud not configured.");
+      var redirectTo = window.location.origin + window.location.pathname;
+      var { data, error } = await c.auth.signInWithOAuth({
+        provider: "google",
+        options: { redirectTo: redirectTo },
+      });
+      if (error) throw new Error(error.message);
+      return data;
+    },
     async signOut() {
       var c = client(); if (!c) return;
       try { await c.auth.signOut(); } catch (e) {}

@@ -1,5 +1,16 @@
 # Changelog
 
+## v37 — Sign in with Google (SSO)
+
+- Added a **"Continue with Google"** button to the auth screen, wired to
+  Supabase's native Google OAuth provider (`Cloud.signInWithGoogle`). Email +
+  password sign-in is unchanged and still available.
+- Requires one-time dashboard setup: a Google Cloud OAuth client (redirect URI
+  = the Supabase auth callback) and enabling the Google provider in Supabase,
+  plus the app URL(s) in Supabase's redirect allowlist. Basic scopes only
+  (email/profile) — no restricted-scope security assessment needed.
+- Cache-bust `v=37`; service-worker cache `ft-v37`.
+
 ## v36 — Card limits: stop phantom "Used" growth + email-verified available
 
 ### Root-cause fix (Used inflating on its own)
