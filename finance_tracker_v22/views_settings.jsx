@@ -77,13 +77,10 @@ function Settings({ state, actions, cloud }) {
   const [showRec, setShowRec] = useState(false);
   const [confirmReset, setConfirmReset] = useState(false);
   const aiMode = (typeof window !== "undefined" && window.__AI_MODE) || "studio";
-  const [aiKey, setAiKey] = useState(() => { try { return localStorage.getItem("ft_ai_access_key") || ""; } catch (e) { return ""; } });
-  const [aiSaved, setAiSaved] = useState(false);
   const [aiTest, setAiTest] = useState(null);
   const [aiMsg, setAiMsg] = useState("");
-  function saveAiKey() { try { localStorage.setItem("ft_ai_access_key", aiKey.trim()); } catch (e) {} setAiSaved(true); setTimeout(() => setAiSaved(false), 1800); }
   async function testAi() {
-    saveAiKey(); setAiTest("testing"); setAiMsg("");
+    setAiTest("testing"); setAiMsg("");
     try {
       const r = await window.claude.complete("Reply with exactly: OK");
       if (r && r.toUpperCase().includes("OK")) { setAiTest("ok"); setAiMsg("Connected — the AI features are live."); }
@@ -189,15 +186,11 @@ function Settings({ state, actions, cloud }) {
           </div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            <div style={{ fontSize: 13, color: "var(--text-2)", lineHeight: 1.6 }}>
-              Your hosted site talks to the AI through your serverless proxy. If you locked it with an <b>APP_SECRET</b>, paste the same value here so your account is the only one that can use it.
+            <div style={{ display: "flex", alignItems: "flex-start", gap: 10, fontSize: 13, color: "var(--text-2)", lineHeight: 1.6 }}>
+              <span className="kpi-ico" style={{ background: "var(--accent-soft)", color: "var(--accent)", width: 30, height: 30, flexShrink: 0 }}><Icon name="shield" size={15} /></span>
+              <div>AI features are secured by your account — every request is authenticated with your login, so there's no key to manage. You just need to be signed in.</div>
             </div>
             <div style={{ display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
-              <div className="field" style={{ flex: "1 1 240px" }}>
-                <label className="label">AI access key <span style={{ color: "var(--text-3)", fontWeight: 500 }}>(optional)</span></label>
-                <input className="input" type="password" placeholder="Matches APP_SECRET on your host" value={aiKey} onChange={e => setAiKey(e.target.value)} />
-              </div>
-              <button className="btn" onClick={saveAiKey}>{aiSaved ? <><Icon name="check" size={15} />Saved</> : "Save key"}</button>
               <button className="btn btn-primary" onClick={testAi} disabled={aiTest === "testing"}>{aiTest === "testing" ? "Testing…" : <><Icon name="wand" size={15} />Test connection</>}</button>
             </div>
             {aiTest && aiTest !== "testing" && (

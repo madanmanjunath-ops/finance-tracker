@@ -7,8 +7,12 @@
    "AI request failed (504)" error. Streamed responses are exempt
    from that cap, so long generations complete.
 
-   Required env var:  ANTHROPIC_API_KEY
-   Optional env vars: CLAUDE_MODEL (default below), APP_SECRET
+   Auth: every request must carry a logged-in user's Supabase session token
+   (Authorization: Bearer ...), verified server-side; per-user daily rate cap
+   via the increment_ai_usage RPC. See AI-PROXY-SECURITY.md.
+
+   Required env vars: ANTHROPIC_API_KEY, SUPABASE_URL, SUPABASE_SERVICE_KEY
+   Optional env vars: CLAUDE_MODEL (default below), AI_DAILY_LIMIT (default 300)
    ============================================================ */
 
 const MODEL = process.env.CLAUDE_MODEL || "claude-sonnet-4-6";
@@ -19,13 +23,15 @@ export default async (req) => {
     return Response.json({
       ok: true,
       streaming: true,
+      auth: "supabase-session",
       hasApiKey: !!process.env.ANTHROPIC_API_KEY,
       apiKeyLooksValid: /^sk-ant-/.test(process.env.ANTHROPIC_API_KEY || ""),
-      hasAppSecret: !!process.env.APP_SECRET,
+      hasSupabase: !!(process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_KEY),
+      dailyLimit: parseInt(process.env.AI_DAILY_LIMIT || "300", 10),
       model: MODEL,
       hint: !process.env.ANTHROPIC_API_KEY
         ? "This deploy does NOT see ANTHROPIC_API_KEY. Set it in Netlify env vars, then deploy AGAIN."
-        : "Key is visible to the function. The AI should work.",
+        : "AI requests must carry a logged-in user's Supabase session token (Authorization: Bearer).",
     });
   }
 
@@ -33,16 +39,49 @@ export default async (req) => {
     return Response.json({ error: "Method not allowed" }, { status: 405 });
   }
 
-  if (process.env.APP_SECRET) {
-    const sent = req.headers.get("x-app-secret") || "";
-    if (sent !== process.env.APP_SECRET) {
-      return Response.json({ error: "Unauthorized" }, { status: 401 });
-    }
-  }
-
   if (!process.env.ANTHROPIC_API_KEY) {
     return Response.json({ error: "Server is missing ANTHROPIC_API_KEY. Add it in your host's environment variables." }, { status: 500 });
   }
+  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_KEY) {
+    return Response.json({ error: "Server is missing Supabase config (SUPABASE_URL / SUPABASE_SERVICE_KEY)." }, { status: 500 });
+  }
+
+  // ---- Per-user auth: require a valid Supabase session token ----
+  // (Replaces the old shared APP_SECRET, which every browser held.)
+  const authz = req.headers.get("authorization") || "";
+  const token = authz.slice(0, 7).toLowerCase() === "bearer " ? authz.slice(7).trim() : "";
+  if (!token) return Response.json({ error: "Sign in to use AI features." }, { status: 401 });
+
+  let userId = null;
+  try {
+    const ures = await fetch(`${process.env.SUPABASE_URL}/auth/v1/user`, {
+      headers: { apikey: process.env.SUPABASE_SERVICE_KEY, authorization: "Bearer " + token },
+    });
+    if (ures.ok) { const u = await ures.json(); userId = u && u.id ? u.id : null; }
+  } catch (e) { /* leave userId null → 401 below */ }
+  if (!userId) return Response.json({ error: "Your session is invalid or expired. Sign in again." }, { status: 401 });
+
+  // ---- Per-user daily rate cap (best-effort: never blocks on infra errors) ----
+  // Calls a Postgres RPC that atomically increments today's count and returns it.
+  // If the RPC isn't installed yet or errors, we fail OPEN (auth already gates access).
+  const dailyLimit = parseInt(process.env.AI_DAILY_LIMIT || "300", 10);
+  try {
+    const rres = await fetch(`${process.env.SUPABASE_URL}/rest/v1/rpc/increment_ai_usage`, {
+      method: "POST",
+      headers: {
+        apikey: process.env.SUPABASE_SERVICE_KEY,
+        authorization: "Bearer " + process.env.SUPABASE_SERVICE_KEY,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ p_user: userId }),
+    });
+    if (rres.ok) {
+      const count = await rres.json(); // RPC returns the new integer count
+      if (typeof count === "number" && count > dailyLimit) {
+        return Response.json({ error: "Daily AI limit reached. Try again tomorrow." }, { status: 429 });
+      }
+    }
+  } catch (e) { /* fail open on rate-limit infra errors */ }
 
   let prompt = "";
   try {

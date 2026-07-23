@@ -54,6 +54,14 @@
       try { var { data } = await c.auth.getUser(); return data && data.user ? data.user : null; }
       catch (e) { return null; }
     },
+    // Current session's access token (JWT). Sent to our AI proxy so it can
+    // verify the user's identity and enforce per-user limits (replaces the old
+    // shared APP_SECRET). Returns "" when signed out / cloud not configured.
+    async getAccessToken() {
+      var c = client(); if (!c) return "";
+      try { var { data } = await c.auth.getSession(); return (data && data.session && data.session.access_token) || ""; }
+      catch (e) { return ""; }
+    },
     onAuthChange(cb) {
       var c = client(); if (!c) return function () {};
       var sub = c.auth.onAuthStateChange(function (_e, session) { cb(session ? session.user : null); });
