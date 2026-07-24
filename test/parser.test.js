@@ -82,3 +82,32 @@ test("txnKey: equal for the same payment, different for a different amount", () 
   assert.equal(I.txnKey(a), I.txnKey(b)); // merchant normalized → dedupe works
   assert.notEqual(I.txnKey(a), I.txnKey(c));
 });
+
+test("REGRESSION (double entry): one order as two emails is caught below ₹1000 via same category", () => {
+  // Real case: a ₹543 Swiggy Instamart order arrived as "Instamart" (Groceries)
+  // AND "Swiggy" (Groceries). Different merchants + different accounts dodged the
+  // exact guard, and ₹543 < ₹1000 dodged the old fuzzy floor. Same category now
+  // catches it.
+  const existing = { source: "gmail", date: "2026-07-24", type: "expense", amount: 543, category: "groceries", merchant: "Instamart" };
+  const incoming = { source: "gmail", date: "2026-07-24", type: "expense", amount: 543, category: "groceries", merchant: "Swiggy" };
+  assert.equal(I.isFuzzyDup(incoming, existing), true);
+});
+
+test("isFuzzyDup: large amounts match even without a matching category", () => {
+  const existing = { source: "gmail", date: "2026-07-24", type: "expense", amount: 12000, category: "travel" };
+  const incoming = { source: "gmail", date: "2026-07-24", type: "expense", amount: 12000, category: "misc" };
+  assert.equal(I.isFuzzyDup(incoming, existing), true);
+});
+
+test("isFuzzyDup: does NOT merge small same-day buys of different categories", () => {
+  const existing = { source: "gmail", date: "2026-07-24", type: "expense", amount: 543, category: "dining" };
+  const incoming = { source: "gmail", date: "2026-07-24", type: "expense", amount: 543, category: "fuel" };
+  assert.equal(I.isFuzzyDup(incoming, existing), false);
+});
+
+test("isFuzzyDup: does NOT merge different amounts, dates, or non-gmail rows", () => {
+  const base = { source: "gmail", date: "2026-07-24", type: "expense", amount: 543, category: "groceries" };
+  assert.equal(I.isFuzzyDup(base, { ...base, amount: 544 }), false);        // different amount
+  assert.equal(I.isFuzzyDup(base, { ...base, date: "2026-07-25" }), false); // different day
+  assert.equal(I.isFuzzyDup(base, { ...base, source: "manual" }), false);   // not a gmail row
+});

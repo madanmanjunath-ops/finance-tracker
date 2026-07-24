@@ -303,11 +303,11 @@ exports.handler = async (event) => {
   if (existing.some(t => txnKey(t) === txnKey(txn))) {
     return json(200, { ok: true, booked: "duplicate_skipped", merchant: txn.merchant, amount: amt });
   }
-  // Fuzzy guard: bank alert and biller receipt for the SAME payment often use
-  // different merchant text. If a gmail-sourced txn with the same date, type,
-  // and exact amount (≥ ₹1000, where coincidences are unlikely) already
-  // exists, treat this as the same payment.
-  if (amt >= 1000 && existing.some(t => t.source === "gmail" && t.date === txn.date && t.type === txn.type && Math.abs((+t.amount || 0) - amt) < 0.01)) {
+  // Fuzzy guard: one purchase often arrives as TWO gmail emails with different
+  // merchant text — e.g. a Swiggy Instamart order that sends both an "Instamart"
+  // receipt and a bank/card alert reading "Swiggy". The exact-merchant guard
+  // above can't catch those, so match on date + type + exact amount instead.
+  if (existing.some(t => isFuzzyDup(txn, t))) {
     return json(200, { ok: true, booked: "duplicate_skipped_fuzzy", merchant: txn.merchant, amount: amt });
   }
   // Self-transfer guard: moving money between your OWN accounts produces TWO
@@ -370,10 +370,23 @@ function txnKey(t) {
   const merch = String(t.merchant || "").toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 14);
   return [t.date, t.type, Math.round(Math.abs(+t.amount) || 0), merch].join("|");
 }
+// True if existing gmail txn `t` is the SAME payment as `txn`: same day, same
+// type, same amount to the paisa. Since one order can arrive as two emails with
+// different merchant text, we can't compare merchants — so we require an extra
+// signal to avoid merging two genuinely different buys: EITHER the amount is
+// large (≥ ₹1000, where an exact same-day coincidence is very unlikely) OR the
+// category is identical (both "groceries" for the two halves of one order).
+function isFuzzyDup(txn, t) {
+  if (!t || t.source !== "gmail") return false;
+  if (t.date !== txn.date || t.type !== txn.type) return false;
+  const a = +txn.amount || 0;
+  if (Math.abs((+t.amount || 0) - a) >= 0.01) return false;
+  return a >= 1000 || (!!t.category && !!txn.category && t.category === txn.category);
+}
 
 // Test-only: expose pure internals for the offline unit-test suite. Netlify's
 // function runtime only ever calls exports.handler, so this has no runtime effect.
 module.exports.__test = {
   tokenFilter, cleanPayee, extractVPA, extractUpiPayee, looksLikeTransfer,
-  matchCardStrict, availFromText, statedAvail, txnKey, SYMOK, catOk,
+  matchCardStrict, availFromText, statedAvail, txnKey, isFuzzyDup, SYMOK, catOk,
 };

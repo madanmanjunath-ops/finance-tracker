@@ -1,5 +1,20 @@
 # Changelog
 
+## v41 — Fix duplicate transactions from one order's two emails
+
+- **Root cause:** a single purchase often generates two Gmail emails with
+  different merchant text (e.g. a ₹543 Swiggy Instamart order arriving as both
+  an "Instamart" receipt and a "Swiggy" card alert). The exact-merchant dedupe
+  couldn't match them, and the fuzzy dedupe only ran for amounts **≥ ₹1000** —
+  so sub-₹1000 orders got booked twice, on different accounts.
+- **Fix:** the fuzzy duplicate guard (`isFuzzyDup`) now also catches payments
+  under ₹1000 when a strong extra signal agrees — the **same category** (both
+  "Groceries" for the two halves of one order) — while still merging any
+  same-day, same-amount pair ≥ ₹1000. Two genuinely different same-day buys of
+  different categories are left alone.
+- Covered by regression tests in `test/parser.test.js`. Server-only change
+  (`ingest.js`, both copies) — no cache bump.
+
 ## v40 — Automated tests + security hardening
 
 ### Security hardening
