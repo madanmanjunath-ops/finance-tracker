@@ -127,6 +127,20 @@ function guessTxnType(text) {
   if (/\b(credited|received|refund)\b/.test(s) && !/\b(debited|spent|withdrawn)\b/.test(s)) return "income";
   return "expense";
 }
+// Best account for a review stub: match the last-4 in the email ("A/c no.
+// XX3774" → the account/card ending 3774) so it isn't blindly tagged to the
+// first account. Falls back to the first account only when nothing matches.
+// (Requires the account/card to have its last-4 saved in the app.)
+function stubAccount(text, data) {
+  const last4 = (String(text).match(/(?:xx|••|ending|account number|a\/c|acct|card no\.?|\*+)\s*[:.]?\s*x*(\d{4})\b/i) || [])[1];
+  if (last4) {
+    const acc = (data.accounts || []).find(a => a.last4 && String(a.last4) === last4);
+    if (acc) return acc.id;
+    const card = (data.cards || []).find(c => c.last4 && String(c.last4) === last4);
+    if (card) return "card:" + card.id;
+  }
+  return (data.accounts && data.accounts[0] && data.accounts[0].id) || "";
+}
 
 // Build the PostgREST filter that finds the user by their ingest token.
 // encodeURIComponent neutralises PostgREST metacharacters (& = , ( ) . etc.) so
@@ -134,7 +148,7 @@ function guessTxnType(text) {
 // other users' rows. All lookups MUST go through this helper.
 function tokenFilter(token) { return `data->gmail->>token=eq.${encodeURIComponent(token)}`; }
 
-async function parseEmail(text, data) {
+async function parseEmail(text, data, opts) {
   const hints = ownHints(data || {});
   const ownLine = hints.length
     ? `\nThe user's OWN accounts/cards: ${hints.join(", ")}. If money simply moves between the user's own accounts, or it's a credit-card bill payment from the user's own bank, set "type":"transfer" and "category":"transfer" (NOT income/expense).`
@@ -155,9 +169,14 @@ For a credit-card statement use the TOTAL amount due and category "cardpay". For
 Expense ids: ${EXP_CATS.join("/")}. Income ids: ${INC_CATS.join("/")}. Credits/salary/refund/interest=income; debits/purchases=expense.${ownLine} If no clear date use ${todayISO()}. If it's neither a real completed transaction nor a due bill — i.e. a promotion, OTP, pure balance/limit summary, or a DECLINED/FAILED/reversed transaction — return {"amount":0} (you may still include "availableLimit" if the email states one).
 Email:
 """${String(text).slice(0, 2500)}"""`;
+  // Cheap model by default; escalation (opts.strong) uses the stronger one to
+  // recover a transaction the cheap pass misread.
+  const model = (opts && opts.strong)
+    ? (process.env.CLAUDE_MODEL || "claude-sonnet-5")
+    : (process.env.CLAUDE_MODEL_FAST || "claude-haiku-4-5");
   const r = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST", headers: { "content-type": "application/json", "x-api-key": process.env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" },
-    body: JSON.stringify({ model: process.env.CLAUDE_MODEL_FAST || "claude-haiku-4-5", max_tokens: 400, messages: [{ role: "user", content: prompt }] }),
+    body: JSON.stringify({ model: model, max_tokens: 400, messages: [{ role: "user", content: prompt }] }),
   });
   // Upstream unreachable/erroring (bad key, exhausted credit, retired model,
   // rate limit, 5xx) is TRANSIENT — flag it so the caller returns parse_failed
@@ -199,7 +218,7 @@ exports.handler = async (event) => {
     const stub = {
       id: uid(), type: "expense", amount: 0,
       currency: "INR", merchant: "Unparsed bank email — needs review",
-      category: "uncat", account: (data.accounts && data.accounts[0] && data.accounts[0].id) || "",
+      category: "uncat", account: stubAccount(text, data),
       date: todayISO(), note: String(text || "").slice(0, 400),
       source: "gmail", status: "pending", confidence: 0, tags: ["parse-failed"],
     };
@@ -208,7 +227,20 @@ exports.handler = async (event) => {
     try { await sbPatch(user_id, next); } catch (e2) { return json(200, { ok: false, reason: "parse_failed" }); }
     return json(200, { ok: true, booked: "pending_unparsed" });
   }
-  const amt = Math.abs(+String(o.amount).replace(/[^0-9.]/g, "")) || 0;
+  let amt = Math.abs(+String(o.amount).replace(/[^0-9.]/g, "")) || 0;
+
+  // Escalate-on-miss: the cheap model returned no amount, but the email clearly
+  // states a transaction amount next to a debit/credit/spent verb. Re-parse this
+  // ONE email on the stronger model to recover the FULL details (payee, account,
+  // category) — not just a bare amount. Fires rarely (only on a real miss), so
+  // it keeps the cost savings while restoring accuracy where it matters.
+  if (!amt && txnAmountFromText(text) != null) {
+    try {
+      const o2 = await parseEmail(text, data, { strong: true });
+      const amt2 = Math.abs(+String(o2.amount).replace(/[^0-9.]/g, "")) || 0;
+      if (amt2) { o = o2; amt = amt2; }
+    } catch (e) { /* keep the cheap result; the deterministic fallback below still applies */ }
+  }
 
   // ---- card-side updates that can ride on ANY email, transaction or not ----
   // (1) a stated available limit re-anchors the card; (2) a statement due date
@@ -239,7 +271,7 @@ exports.handler = async (event) => {
         id: uid(), type: guessTxnType(text), amount: fbAmt, currency: "INR",
         merchant: (extractUpiPayee(text) || extractVPA(text) || "Bank transaction — needs review").slice(0, 80),
         category: "uncat",
-        account: (data.accounts && data.accounts[0] && data.accounts[0].id) || "",
+        account: stubAccount(text, data),
         date: todayISO(), note: String(text || "").slice(0, 400),
         source: "gmail", status: "pending", confidence: 0, tags: ["ai-missed"],
       };
@@ -444,5 +476,5 @@ function isFuzzyDup(txn, t) {
 module.exports.__test = {
   tokenFilter, cleanPayee, extractVPA, extractUpiPayee, looksLikeTransfer,
   matchCardStrict, availFromText, statedAvail, txnAmountFromText, guessTxnType,
-  txnKey, isFuzzyDup, SYMOK, catOk,
+  stubAccount, txnKey, isFuzzyDup, SYMOK, catOk,
 };
