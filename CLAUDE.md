@@ -114,6 +114,10 @@ Prioritised; not yet fixed. Confirm scope with the user before tackling.
 3. **AI statement import forces `currency:"INR"`** — foreign-currency rows lose
    their currency (`aiExtractFromText` in `view_import.jsx`).
 4. **`AddTxnModal` defaults income currency to USD** — can mis-tag INR income.
-5. **No automated tests.** The serverless functions are the most testable part
-   and the best place to start if we add a test setup.
+5. ~~**No automated tests.**~~ **Started in v40.** A zero-dependency suite lives
+   at the repo root (`test/`, run `npm test` — Node's built-in runner, no build
+   step): money math, the Gmail parser helpers, and ingest-token/injection
+   security, plus a live RLS/auth test (`test/integration/security-live.mjs`).
+   The suite is outside Netlify's base dir, so it never affects the deploy.
+   Still to grow: more parser cases and a GitHub Actions run-on-PR workflow.
 6. **Two `ingest.js` copies** (see conventions) — candidate for cleanup.

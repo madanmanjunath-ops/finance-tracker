@@ -97,6 +97,12 @@ function statedAvail(o, text) {
   return r != null && r >= 0 ? r : null;
 }
 
+// Build the PostgREST filter that finds the user by their ingest token.
+// encodeURIComponent neutralises PostgREST metacharacters (& = , ( ) . etc.) so
+// a crafted token can never break out of the eq.<token> filter to read or match
+// other users' rows. All lookups MUST go through this helper.
+function tokenFilter(token) { return `data->gmail->>token=eq.${encodeURIComponent(token)}`; }
+
 async function parseEmail(text, data) {
   const hints = ownHints(data || {});
   const ownLine = hints.length
@@ -144,7 +150,7 @@ exports.handler = async (event) => {
   if (!text.trim()) return json(400, { error: "Missing email text" });
 
   // find the user whose data.gmail.token matches
-  const rows = await sbGet(`app_state?select=user_id,data&data->gmail->>token=eq.${encodeURIComponent(token)}`);
+  const rows = await sbGet(`app_state?select=user_id,data&${tokenFilter(token)}`);
   if (!rows || !rows.length) return json(403, { error: "Unknown ingest token" });
   const { user_id, data } = rows[0];
 
@@ -364,3 +370,10 @@ function txnKey(t) {
   const merch = String(t.merchant || "").toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 14);
   return [t.date, t.type, Math.round(Math.abs(+t.amount) || 0), merch].join("|");
 }
+
+// Test-only: expose pure internals for the offline unit-test suite. Netlify's
+// function runtime only ever calls exports.handler, so this has no runtime effect.
+module.exports.__test = {
+  tokenFilter, cleanPayee, extractVPA, extractUpiPayee, looksLikeTransfer,
+  matchCardStrict, availFromText, statedAvail, txnKey, SYMOK, catOk,
+};
