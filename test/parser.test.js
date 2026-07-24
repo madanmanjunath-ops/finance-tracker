@@ -141,3 +141,20 @@ test("guessTxnType: debit → expense, credit → income", () => {
   assert.equal(I.guessTxnType("Rs 50,000 credited to your account"), "income");
   assert.equal(I.guessTxnType("You spent Rs 500"), "expense");
 });
+
+test("REGRESSION (wrong account): a stub matches the account by last-4, not the first account", () => {
+  // "debited from A/c no. XX3774" must tag the Axis account ending 3774,
+  // not blindly default to the first account (Kotak).
+  const data = {
+    accounts: [
+      { id: "kotak1", name: "Kotak Savings", last4: "1111" },
+      { id: "axis1", name: "Axis Savings", last4: "3774" },
+    ],
+    cards: [{ id: "axiscard", name: "Axis Atlas", last4: "9526" }],
+  };
+  assert.equal(I.stubAccount("INR 400.00 was debited from your A/c no. XX3774.", data), "axis1");
+  // a card last-4 resolves to the card
+  assert.equal(I.stubAccount("spent on card ending 9526", data), "card:axiscard");
+  // no last-4 in the email → falls back to the first account
+  assert.equal(I.stubAccount("some promo with no number", data), "kotak1");
+});

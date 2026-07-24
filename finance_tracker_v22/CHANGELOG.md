@@ -1,5 +1,23 @@
 # Changelog
 
+## v42 — Ingest: escalate-on-miss + correct account on recovered stubs
+
+Follow-up to v41. When the cheap parser misreads an email, the recovered entry
+was low-quality: a generic "needs review" payee and the wrong account (defaulted
+to the first account). Both fixed.
+
+- **Escalate-on-miss.** When the cheap model returns no amount but the email
+  clearly states one (a figure next to a debit/credit/spent verb), ingest now
+  re-parses that **one** email on the stronger model (`CLAUDE_MODEL`) to recover
+  the full details — payee, account, category — not just a bare amount. It fires
+  only on a real miss, so the v39 cost savings are preserved.
+- **Correct account on stubs.** Both review stubs (AI-missed and unparsed) now
+  match the account/card by the **last-4 in the email** (`A/c XX3774` → the Axis
+  account ending 3774) instead of defaulting to the first account. Requires the
+  account/card to have its last-4 saved in the app.
+- Server-only change (`ingest.js`, both copies); regression tests in
+  `test/parser.test.js`. No cache bump.
+
 ## v41 — Ingest reliability: stop double-bookings and silent drops
 
 Two Gmail-ingest fixes, both server-only (`ingest.js`, both copies) with
