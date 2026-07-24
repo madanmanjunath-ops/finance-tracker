@@ -97,6 +97,37 @@ function statedAvail(o, text) {
   return r != null && r >= 0 ? r : null;
 }
 
+// Deterministic fallback: recover the TRANSACTION amount from an email when the
+// AI misses it (returns amount 0). We collect every currency figure, DROP any
+// that reads as an available-limit / balance / outstanding / due figure (the
+// same class of number that inflated "Used"), then pick the one closest to a
+// debit/credit/spent verb — and only if it's genuinely near one. Returns a
+// positive number or null.
+function txnAmountFromText(text) {
+  const s = String(text || "");
+  const verbRe = /\b(debited|credited|spent|withdrawn|purchased|paid|payment|received)\b/ig;
+  const amtRe = /(?:rs\.?|inr|₹|usd|\$|eur|€|gbp|£)\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)/ig;
+  const verbs = [];
+  let vm; while ((vm = verbRe.exec(s))) verbs.push(vm.index);
+  if (!verbs.length) return null;
+  let best = null, bestDist = Infinity, am;
+  while ((am = amtRe.exec(s))) {
+    const pre = s.slice(Math.max(0, am.index - 16), am.index).toLowerCase();
+    if (/(avail|avl|avbl|balance|\bbal\b|limit|lmt|outstanding|due)/.test(pre)) continue; // not the txn amount
+    const n = +String(am[1]).replace(/,/g, "");
+    if (!isFinite(n) || n <= 0) continue;
+    const d = Math.min.apply(null, verbs.map(v => Math.abs(v - am.index)));
+    if (d < bestDist) { bestDist = d; best = n; }
+  }
+  return bestDist <= 40 ? best : null; // must sit near a transaction verb
+}
+// Rough income/expense guess for a fallback stub (the user confirms in Review).
+function guessTxnType(text) {
+  const s = String(text || "").toLowerCase();
+  if (/\b(credited|received|refund)\b/.test(s) && !/\b(debited|spent|withdrawn)\b/.test(s)) return "income";
+  return "expense";
+}
+
 // Build the PostgREST filter that finds the user by their ingest token.
 // encodeURIComponent neutralises PostgREST metacharacters (& = , ( ) . etc.) so
 // a crafted token can never break out of the eq.<token> filter to read or match
@@ -198,6 +229,30 @@ exports.handler = async (event) => {
   };
 
   if (!amt) {
+    // The model returned no amount. Before giving up, try to RECOVER a real
+    // transaction it misread: if the email states an amount next to a
+    // debit/credit/spent verb, surface it in the Review inbox as a stub the
+    // user can confirm or fix — never drop a genuine transaction silently.
+    const fbAmt = txnAmountFromText(text);
+    if (fbAmt != null) {
+      const stub = {
+        id: uid(), type: guessTxnType(text), amount: fbAmt, currency: "INR",
+        merchant: (extractUpiPayee(text) || extractVPA(text) || "Bank transaction — needs review").slice(0, 80),
+        category: "uncat",
+        account: (data.accounts && data.accounts[0] && data.accounts[0].id) || "",
+        date: todayISO(), note: String(text || "").slice(0, 400),
+        source: "gmail", status: "pending", confidence: 0, tags: ["ai-missed"],
+      };
+      // don't stack stubs if this same email is re-forwarded
+      const existing0 = [...(data.transactions || []), ...(data.pending || [])];
+      if (existing0.some(t => txnKey(t) === txnKey(stub))) {
+        return json(200, { ok: true, booked: "duplicate_skipped", merchant: stub.merchant, amount: fbAmt });
+      }
+      const next = applyCardUpdates(JSON.parse(JSON.stringify(data)));
+      next.pending = [stub, ...(next.pending || [])];
+      await sbPatch(user_id, next);
+      return json(200, { ok: true, booked: "pending_fallback", merchant: stub.merchant, amount: fbAmt });
+    }
     if (Object.keys(cardUpdates).length) {
       const next = applyCardUpdates(JSON.parse(JSON.stringify(data)));
       await sbPatch(user_id, next);
@@ -303,11 +358,11 @@ exports.handler = async (event) => {
   if (existing.some(t => txnKey(t) === txnKey(txn))) {
     return json(200, { ok: true, booked: "duplicate_skipped", merchant: txn.merchant, amount: amt });
   }
-  // Fuzzy guard: bank alert and biller receipt for the SAME payment often use
-  // different merchant text. If a gmail-sourced txn with the same date, type,
-  // and exact amount (≥ ₹1000, where coincidences are unlikely) already
-  // exists, treat this as the same payment.
-  if (amt >= 1000 && existing.some(t => t.source === "gmail" && t.date === txn.date && t.type === txn.type && Math.abs((+t.amount || 0) - amt) < 0.01)) {
+  // Fuzzy guard: one purchase often arrives as TWO gmail emails with different
+  // merchant text — e.g. a Swiggy Instamart order that sends both an "Instamart"
+  // receipt and a bank/card alert reading "Swiggy". The exact-merchant guard
+  // above can't catch those, so match on date + type + exact amount instead.
+  if (existing.some(t => isFuzzyDup(txn, t))) {
     return json(200, { ok: true, booked: "duplicate_skipped_fuzzy", merchant: txn.merchant, amount: amt });
   }
   // Self-transfer guard: moving money between your OWN accounts produces TWO
@@ -370,10 +425,24 @@ function txnKey(t) {
   const merch = String(t.merchant || "").toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 14);
   return [t.date, t.type, Math.round(Math.abs(+t.amount) || 0), merch].join("|");
 }
+// True if existing gmail txn `t` is the SAME payment as `txn`: same day, same
+// type, same amount to the paisa. Since one order can arrive as two emails with
+// different merchant text, we can't compare merchants — so we require an extra
+// signal to avoid merging two genuinely different buys: EITHER the amount is
+// large (≥ ₹1000, where an exact same-day coincidence is very unlikely) OR the
+// category is identical (both "groceries" for the two halves of one order).
+function isFuzzyDup(txn, t) {
+  if (!t || t.source !== "gmail") return false;
+  if (t.date !== txn.date || t.type !== txn.type) return false;
+  const a = +txn.amount || 0;
+  if (Math.abs((+t.amount || 0) - a) >= 0.01) return false;
+  return a >= 1000 || (!!t.category && !!txn.category && t.category === txn.category);
+}
 
 // Test-only: expose pure internals for the offline unit-test suite. Netlify's
 // function runtime only ever calls exports.handler, so this has no runtime effect.
 module.exports.__test = {
   tokenFilter, cleanPayee, extractVPA, extractUpiPayee, looksLikeTransfer,
-  matchCardStrict, availFromText, statedAvail, txnKey, SYMOK, catOk,
+  matchCardStrict, availFromText, statedAvail, txnAmountFromText, guessTxnType,
+  txnKey, isFuzzyDup, SYMOK, catOk,
 };

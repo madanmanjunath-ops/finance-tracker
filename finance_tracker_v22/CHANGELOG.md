@@ -1,5 +1,31 @@
 # Changelog
 
+## v41 — Ingest reliability: stop double-bookings and silent drops
+
+Two Gmail-ingest fixes, both server-only (`ingest.js`, both copies) with
+regression tests in `test/parser.test.js`. No cache bump.
+
+### Duplicate transactions from one order's two emails
+- **Root cause:** a single purchase often generates two Gmail emails with
+  different merchant text (e.g. a ₹543 Swiggy Instamart order arriving as both
+  an "Instamart" receipt and a "Swiggy" card alert). The exact-merchant dedupe
+  couldn't match them, and the fuzzy dedupe only ran for amounts **≥ ₹1000** —
+  so sub-₹1000 orders got booked twice, on different accounts.
+- **Fix:** the fuzzy duplicate guard (`isFuzzyDup`) now also catches payments
+  under ₹1000 when a strong extra signal agrees — the **same category** — while
+  still merging any same-day, same-amount pair ≥ ₹1000. Two genuinely different
+  same-day buys of different categories are left alone.
+
+### Real transactions silently dropped when the AI misreads them
+- **Root cause:** when the parser returned no amount (e.g. the cheaper model
+  misclassifying a promo-heavy debit alert as "not a transaction"), the email
+  was marked handled and **dropped with no trace** — not in the ledger, not in
+  Review.
+- **Fix:** a deterministic amount fallback (`txnAmountFromText`) now recovers the
+  figure stated next to a debit/credit/spent verb (ignoring available-limit /
+  balance numbers), and anything that looks like a real transaction is routed to
+  the **Review inbox** as a stub the user can confirm or fix — never dropped.
+
 ## v40 — Automated tests + security hardening
 
 ### Security hardening
