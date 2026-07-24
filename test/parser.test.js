@@ -111,3 +111,33 @@ test("isFuzzyDup: does NOT merge different amounts, dates, or non-gmail rows", (
   assert.equal(I.isFuzzyDup(base, { ...base, date: "2026-07-25" }), false); // different day
   assert.equal(I.isFuzzyDup(base, { ...base, source: "manual" }), false);   // not a gmail row
 });
+
+test("REGRESSION (silent drop): recover the amount from a debit the AI missed", () => {
+  // The exact email that vanished: the parser returned amount 0, so the server
+  // said not_a_transaction and dropped it. The regex fallback recovers ₹400.
+  assert.equal(
+    I.txnAmountFromText("Subject: INR 400.00 was debited from your A/c no. XX3774.\n\nDear Madan M, ..."),
+    400,
+  );
+  assert.equal(I.txnAmountFromText("Rs. 1,234.56 was debited"), 1234.56);
+  assert.equal(I.txnAmountFromText("You spent Rs 500 at Amazon"), 500);
+  assert.equal(I.txnAmountFromText("Salary of Rs 50,000 credited to your account"), 50000);
+});
+
+test("txnAmountFromText: does NOT grab an available-limit/balance figure", () => {
+  // The phantom-"Used" guard, applied to the fallback: pick the debit amount,
+  // never the (usually larger) available figure sitting nearby.
+  assert.equal(
+    I.txnAmountFromText("INR 400.00 was debited. Available balance INR 39,950.00"),
+    400,
+  );
+  // pure balance/limit notices carry no transaction verb → nothing to recover
+  assert.equal(I.txnAmountFromText("Your available limit is Rs 39,950"), null);
+  assert.equal(I.txnAmountFromText("Get 10% cashback on your next purchase"), null);
+});
+
+test("guessTxnType: debit → expense, credit → income", () => {
+  assert.equal(I.guessTxnType("INR 400 was debited from your account"), "expense");
+  assert.equal(I.guessTxnType("Rs 50,000 credited to your account"), "income");
+  assert.equal(I.guessTxnType("You spent Rs 500"), "expense");
+});
