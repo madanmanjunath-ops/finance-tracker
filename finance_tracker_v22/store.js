@@ -136,6 +136,22 @@
 
   /* ---------------- helpers ---------------- */
   const uid = () => Math.random().toString(36).slice(2, 10);
+  // A high-entropy, unguessable token for the Gmail ingest webhook. This token
+  // authorizes writing transactions into a user's account, so it MUST come from
+  // the platform CSPRNG (crypto) — never Math.random(), whose output is
+  // predictable and could let an attacker forge a valid token. ~256 bits.
+  function ingestToken() {
+    try {
+      const c = (typeof crypto !== "undefined") ? crypto : null;
+      if (c && c.randomUUID) return "ft_" + c.randomUUID().replace(/-/g, "") + c.randomUUID().replace(/-/g, "");
+      if (c && c.getRandomValues) {
+        const a = new Uint8Array(32); c.getRandomValues(a);
+        return "ft_" + Array.from(a, b => b.toString(16).padStart(2, "0")).join("");
+      }
+    } catch (e) { /* fall through */ }
+    // Last-resort fallback (should never run in a modern browser).
+    return "ft_" + uid() + uid() + uid() + uid();
+  }
   const todayISO = () => new Date().toISOString().slice(0, 10);
   function daysAgo(n) { const d = new Date(); d.setDate(d.getDate() - n); return d.toISOString().slice(0, 10); }
   function monthsAgo(n) { const d = new Date(); d.setMonth(d.getMonth() - n); d.setDate(1); return d.toISOString().slice(0, 7); }
@@ -491,7 +507,7 @@
   window.FT = {
     KEY, SCHEMA, EXPENSE_CATS, INCOME_CATS, CAT_MAP, REW_CATS, ACCOUNT_TYPES, NETWORKS, PAYOUTS,
     CARD_DB, CARD_MAP, CUR, DEFAULT_FX,
-    uid, todayISO, daysAgo, monthsAgo, load, save, reset, defaultState, migrate,
+    uid, ingestToken, todayISO, daysAgo, monthsAgo, load, save, reset, defaultState, migrate,
     fmt, fmtShort, relDate, monthLabel, daysUntil, floatDays, rewardRate, ordinal, nextDue, cardPartners, pointValue,
     ownAccountHints, looksLikeTransfer, txnKey, TRANSFER_CAT, applyRenames, currentQuarter, parseAIJson, payTargets, payTargetName, extractVPA, extractUpiPayee, bestMerchant, incomePercentile, wealthTarget, BENCHMARKS,
     annualYield: (a) => (a.rate ? (a.balance || 0) * a.rate / 100 : 0),

@@ -355,7 +355,7 @@ function App({ cloudOn, user }) {
     addFixedExpenses: (items) => patch(s => ({ fixedExpenses: [...(s.fixedExpenses || []), ...items] })),
     setNotify: (n) => patch(s => ({ notify: { ...s.notify, ...n } })),
     setGmail: (g) => patch(s => ({ gmail: { ...s.gmail, ...g } })),
-    genIngestToken: () => patch(s => ({ gmail: { ...s.gmail, token: "ft_" + FT.uid() + FT.uid() } })),
+    genIngestToken: () => patch(s => ({ gmail: { ...s.gmail, token: FT.ingestToken() } })),
     // onboarding
     commitOnboarding: ({ profile, accounts, cards, loans }) => patch({ profile, accounts, cards, loans, onboarded: true }),
     wipeAll: () => patch(() => { const d = FT.defaultState(); return { ...d, onboarded: false }; }),

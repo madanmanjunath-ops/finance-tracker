@@ -1,5 +1,32 @@
 # Changelog
 
+## v40 — Automated tests + security hardening
+
+### Security hardening
+- **Ingest token is now CSPRNG-generated.** The Gmail webhook token authorizes
+  writing transactions into a user's account; it was built from `Math.random()`
+  (predictable, low entropy). It now comes from the platform crypto RNG
+  (`FT.ingestToken()`, ~256-bit). **Existing users should regenerate their token**
+  (Settings → Gmail import) to get a strong one.
+- **Ingest user-lookup hardened.** The token→user PostgREST filter was extracted
+  to a single `tokenFilter()` helper (still `encodeURIComponent`-guarded) with a
+  regression test proving a crafted token can't break out to match another row.
+
+### Automated tests (first suite)
+- New **zero-dependency test suite** at the repo root (`test/`), run with
+  `npm test` (Node's built-in runner — no build step). 24 unit tests covering
+  the money math (currency conversion, the card used/available engine, net
+  worth — including a **regression test for the "phantom Used" bug**), the Gmail
+  parser's deterministic helpers, and ingest-token/injection security.
+- New **live security test** (`test/integration/security-live.mjs`) that verifies
+  cross-account isolation (RLS), unauthenticated reads, and password login
+  against your real Supabase project.
+- Full findings written up in **`SECURITY-REVIEW.md`** (no cross-account leak
+  found; the shared AI key does not leak data between accounts).
+- None of this ships to the site — the `test/` folder lives outside Netlify's
+  base directory.
+- Cache-bust `v=40`; service-worker cache `ft-v40` (store.js/app.jsx changed).
+
 ## v39 — AI cost cut (cheap model for parsing, strong model for reasoning)
 
 - The `/api/claude` proxy now supports **two model tiers**. High-volume
