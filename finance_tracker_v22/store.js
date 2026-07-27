@@ -197,6 +197,31 @@
     try { const raw = localStorage.getItem(KEY); if (raw) return migrate(JSON.parse(raw)); } catch (e) {}
     const s = defaultState(); save(s); return s;
   }
+  // ---- transaction dedup (MIRRORS netlify/functions/lib/dedup.js — keep in sync;
+  //      a unit test cross-checks the two produce identical keys) ----
+  const BRAND_FAMILIES = [["swiggy", "instamart"], ["zomato", "blinkit"]];
+  function normalizeMerchant(m) {
+    const str = String(m || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+    for (const fam of BRAND_FAMILIES) if (fam.some(k => str.includes(k))) return fam[0];
+    return str;
+  }
+  function dedupKey(t) {
+    const ref = t && t.bank_ref ? String(t.bank_ref).trim().toLowerCase() : "";
+    if (ref) return "ref:" + ref;
+    const date = String((t && (t.occurred_on || t.date)) || "");
+    const dir = String((t && (t.direction || t.type)) || "");
+    const paise = Math.round(Math.abs(+(t && t.amount) || 0) * 100);
+    return ["syn", date, dir, paise, normalizeMerchant(t && t.merchant)].join("|");
+  }
+  // Drop transactions sharing a dedup_key, keeping the FIRST seen — so the
+  // on-screen ledger matches the server's DB-enforced dedup (removes historical
+  // duplicates from view and self-heals any straggler).
+  function dedupeTxns(list) {
+    const seen = new Set(); const out = [];
+    for (const t of (list || [])) { const k = dedupKey(t); if (seen.has(k)) continue; seen.add(k); out.push(t); }
+    return out;
+  }
+
   function migrate(s) {
     if (!s.fx) s.fx = { ...DEFAULT_FX };
     if (!s.displayCurrency) s.displayCurrency = s.currency || "INR";
@@ -230,6 +255,9 @@
       if (!t.status) t.status = "confirmed";
       if (!t.tags) t.tags = [];
     });
+    // Collapse any duplicate transactions on load (same rule as the server), so
+    // historical duplicates already in the ledger disappear from view.
+    if (Array.isArray(s.transactions)) s.transactions = dedupeTxns(s.transactions);
     return s;
   }
   function save(state) { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} }
@@ -507,7 +535,7 @@
   window.FT = {
     KEY, SCHEMA, EXPENSE_CATS, INCOME_CATS, CAT_MAP, REW_CATS, ACCOUNT_TYPES, NETWORKS, PAYOUTS,
     CARD_DB, CARD_MAP, CUR, DEFAULT_FX,
-    uid, ingestToken, todayISO, daysAgo, monthsAgo, load, save, reset, defaultState, migrate,
+    uid, ingestToken, dedupKey, dedupeTxns, todayISO, daysAgo, monthsAgo, load, save, reset, defaultState, migrate,
     fmt, fmtShort, relDate, monthLabel, daysUntil, floatDays, rewardRate, ordinal, nextDue, cardPartners, pointValue,
     ownAccountHints, looksLikeTransfer, txnKey, TRANSFER_CAT, applyRenames, currentQuarter, parseAIJson, payTargets, payTargetName, extractVPA, extractUpiPayee, bestMerchant, incomePercentile, wealthTarget, BENCHMARKS,
     annualYield: (a) => (a.rate ? (a.balance || 0) * a.rate / 100 : 0),

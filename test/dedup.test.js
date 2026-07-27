@@ -8,6 +8,8 @@ const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const path = require("node:path");
 const D = require(path.join(__dirname, "..", "finance_tracker_v22", "netlify", "functions", "lib", "dedup.js"));
+const { loadBrowserGlobals } = require("./harness");
+const { FT } = loadBrowserGlobals();
 
 test("extractBankRef: pulls a UPI reference / RRN / UTR", () => {
   assert.equal(D.extractBankRef("Paid via UPI Ref No 512345678901 to Swiggy"), "upi:512345678901");
@@ -55,4 +57,29 @@ test("dedupKey: a real bank reference always wins over the synthetic fallback", 
   assert.ok(D.dedupKey(withRef).startsWith("ref:"));
   const noRef = { occurred_on: "2026-07-27", amount: 775, direction: "debit", merchant: "Swiggy" };
   assert.ok(D.dedupKey(noRef).startsWith("syn|"));
+});
+
+test("SYNC: browser FT.dedupKey matches the server dedupKey for identical inputs", () => {
+  // If this fails, store.js and lib/dedup.js have drifted — the on-screen
+  // ledger and the DB dedup would disagree. Keep the two copies identical.
+  const samples = [
+    { date: "2026-07-27", type: "expense", amount: 775, merchant: "Swiggy" },
+    { date: "2026-07-27", type: "expense", amount: 775, merchant: "Instamart" },
+    { date: "2026-01-10", type: "income", amount: 5000, merchant: "ACME Corp" },
+    { bank_ref: "upi:123456789012", date: "2026-01-10", type: "expense", amount: 100, merchant: "X" },
+    { date: "2026-02-02", type: "transfer", amount: 12000.5, merchant: "Self" },
+  ];
+  for (const s of samples) assert.equal(FT.dedupKey(s), D.dedupKey(s));
+});
+
+test("FT.dedupeTxns removes same-key duplicates and keeps the first", () => {
+  const list = [
+    { id: "a", date: "2026-07-27", type: "expense", amount: 775, merchant: "Instamart" },
+    { id: "b", date: "2026-07-27", type: "expense", amount: 775, merchant: "Swiggy" }, // dup of a
+    { id: "c", date: "2026-07-27", type: "expense", amount: 200, merchant: "Uber" },
+  ];
+  const out = FT.dedupeTxns(list);
+  assert.equal(out.length, 2);
+  assert.equal(out[0].id, "a");
+  assert.equal(out[1].id, "c");
 });
