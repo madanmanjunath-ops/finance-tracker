@@ -203,25 +203,53 @@ function stubAccount(text, data) {
 // other users' rows. All lookups MUST go through this helper.
 function tokenFilter(token) { return `data->gmail->>token=eq.${encodeURIComponent(token)}`; }
 
+// The strict schema the model MUST fill in (forced tool-use). This guarantees a
+// well-formed, typed result — no more "hope the JSON parses" — and adds a
+// dedicated bank_ref field. The handler reads exactly these fields.
+const RECORD_TOOL = {
+  name: "record_email",
+  description: "Record the classification and extracted fields of a bank/card email.",
+  input_schema: {
+    type: "object",
+    properties: {
+      kind: { type: "string", enum: ["transaction", "bill", "non_transaction"],
+        description: "transaction = a payment that ALREADY happened; bill = an amount DUE in the future; non_transaction = promo / OTP / pure balance-or-limit summary / declined / failed / reversed." },
+      type: { type: "string", enum: ["income", "expense", "transfer"],
+        description: "For a transaction: money received = income; money spent/paid = expense; a movement between the user's OWN accounts, or a card-bill payment from their own bank = transfer." },
+      amount: { type: "number",
+        description: "The value of THIS transaction ONLY — the exact money that moved. NEVER the available balance, available credit limit, outstanding, total amount due, or reward points. Use 0 for non_transaction." },
+      currency: { type: "string", enum: ["INR", "USD", "EUR", "GBP"] },
+      merchant: { type: "string",
+        description: "Short human name of the OTHER party (who was paid, or who paid the user) — NOT the bank/issuer that SENT the email. Use the payee from 'paid to' / 'to VPA' / 'at <merchant>' / 'received from' / the UPI handle. If only a bank/issuer name is present, return 'Unknown'." },
+      account: { type: ["string", "null"],
+        description: "Which of the user's accounts/cards the money moved on (name + last-4 if identifiable), else null." },
+      date: { type: "string", description: "Transaction date as YYYY-MM-DD." },
+      category: { type: "string", description: "One category id from the allowed list, or 'transfer'." },
+      availableLimit: { type: ["number", "null"],
+        description: "For a card email, the remaining available credit/limit the email states, else null." },
+      dueDate: { type: ["string", "null"], description: "For kind=bill, the due date as YYYY-MM-DD, else null." },
+      bank_ref: { type: ["string", "null"],
+        description: "The bank's own transaction reference if present — UPI RRN, UTR, transaction/reference id — copied verbatim, else null." },
+      confidence: { type: "integer", description: "0-100 confidence the extraction is correct." },
+    },
+    required: ["kind", "type", "amount", "currency", "merchant", "date", "category", "confidence"],
+  },
+};
+
 async function parseEmail(text, data, opts) {
   const hints = ownHints(data || {});
   const ownLine = hints.length
-    ? `\nThe user's OWN accounts/cards: ${hints.join(", ")}. If money simply moves between the user's own accounts, or it's a credit-card bill payment from the user's own bank, set "type":"transfer" and "category":"transfer" (NOT income/expense).`
+    ? ` The user's OWN accounts/cards: ${hints.join(", ")} — a movement between these (or a card-bill payment from their own bank) is a transfer.`
     : "";
-  const prompt = `Read this email and classify it. Respond ONLY JSON, no prose.
+  const prompt = `Classify this bank/card email and call the record_email tool.
 
-If it confirms a transaction that ALREADY HAPPENED (debited/credited/spent/received):
-{"kind":"transaction","type":"income"|"expense"|"transfer","amount":<number>,"currency":"INR"|"USD"|"EUR"|"GBP","merchant":"<string>","account":"<string|null>","date":"YYYY-MM-DD","category":"<id or 'transfer'>","availableLimit":<number or null>,"confidence":<0-100>}
+AMOUNT is the value of THIS transaction only — the exact money that moved. It is NEVER the available balance / available credit limit, outstanding, total amount due, or reward points (those are different, usually larger, numbers in the same email). For a card spend, put the remaining available figure into availableLimit and the amount actually spent into amount.
 
-CRITICAL — "amount" is the value of THIS transaction ONLY: the exact money that moved (spent/debited/credited/received). It is NEVER the available balance, available credit limit, outstanding balance, total amount due, or reward points — those are different, usually larger, numbers that also appear in the email. For a credit-card spend, put the remaining available credit/limit/balance the email states (e.g. "Available limit Rs 1,17,000", "Avl Bal 39,950") into "availableLimit" as a plain number, and the amount actually spent into "amount". If no available figure is stated, set "availableLimit":null.
+MERCHANT is the OTHER party (who was paid, or who paid the user), NEVER the bank/issuer that SENT the email — a debit alert from "HDFC Bank" for a payment to "Swiggy" has merchant "Swiggy". Prefer 'paid to' / 'to VPA' / 'at <merchant>' / 'received from' / the UPI payee. If only a bank/issuer name is present, return "Unknown". For a credit-card bill payment name it "<card name> bill".
 
-"merchant" must be a SHORT, human-friendly label a person instantly recognizes — the brand, payee, or purpose. CRITICAL: this is the OTHER party in the transaction (who you paid, or who paid you), NOT the bank or service that SENT the email. Ignore the email's sender/From line entirely — a debit alert from "HDFC Bank" about a payment to "Swiggy" has merchant "Swiggy", not "HDFC". Look inside the body for "paid to", "to VPA", "at <merchant>", "towards", "received from", the UPI handle, or the payee name. NEVER use raw bank names, reference numbers, or codes. If the only name you can find is a bank/card issuer (HDFC, ICICI, Axis, Kotak, SBI, Scapia, Federal, Amazon Pay, Amex, IDFC, Yes Bank, RBL, AU, IndusInd, etc.), that is the SENDER, not the merchant — do NOT use it; instead look harder in the body for the real payee, or use the UPI VPA, or return merchant "Unknown" so the app can fall back. Examples: "Swiggy", "House rent", "Skoda car EMI", "Salary". For a credit-card bill payment, name it "<card name> bill" using the user's card list (e.g. "Kotak Solitaire bill"). "account" is which of the user's accounts/cards the money moved on — if the email mentions a card (by name or last-4 digits), put that card's name and include its last 4 digits in "account" (e.g. "HDFC Infinia 0042"); copied from the user's list below if identifiable, else null.
+For kind=bill (an amount due in the future), use the TOTAL amount due and set dueDate; a credit-card statement uses category "cardpay".
 
-If it announces a bill or payment that is DUE IN THE FUTURE (bill generated, statement ready with amount due, premium/EMI/recharge reminder, "pay by <date>"):
-{"kind":"bill","amount":<number, the amount due>,"currency":"INR"|"USD"|"EUR"|"GBP","merchant":"<biller name>","dueDate":"YYYY-MM-DD","category":"<id>","confidence":<0-100>}
-For a credit-card statement use the TOTAL amount due and category "cardpay". For utilities/phone/internet use "bills", insurance "health" or "bills", rent "rent", loan EMI "emi", subscriptions "subs".
-
-Expense ids: ${EXP_CATS.join("/")}. Income ids: ${INC_CATS.join("/")}. Credits/salary/refund/interest=income; debits/purchases=expense.${ownLine} If no clear date use ${todayISO()}. If it's neither a real completed transaction nor a due bill — i.e. a promotion, OTP, pure balance/limit summary, or a DECLINED/FAILED/reversed transaction — return {"amount":0} (you may still include "availableLimit" if the email states one).
+Expense category ids: ${EXP_CATS.join("/")}. Income ids: ${INC_CATS.join("/")}. Credits/salary/refund/interest = income; debits/purchases = expense.${ownLine} If no clear date, use ${todayISO()}.
 Email:
 """${String(text).slice(0, 2500)}"""`;
   // Cheap model by default; escalation (opts.strong) uses the stronger one to
@@ -231,7 +259,12 @@ Email:
     : (process.env.CLAUDE_MODEL_FAST || "claude-haiku-4-5");
   const r = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST", headers: { "content-type": "application/json", "x-api-key": process.env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" },
-    body: JSON.stringify({ model: model, max_tokens: 400, messages: [{ role: "user", content: prompt }] }),
+    body: JSON.stringify({
+      model: model, max_tokens: 500,
+      tools: [RECORD_TOOL],
+      tool_choice: { type: "tool", name: "record_email" }, // force a schema-valid result
+      messages: [{ role: "user", content: prompt }],
+    }),
   });
   // Upstream unreachable/erroring (bad key, exhausted credit, retired model,
   // rate limit, 5xx) is TRANSIENT — flag it so the caller returns parse_failed
@@ -239,10 +272,10 @@ Email:
   if (!r.ok) { const e = new Error("anthropic_http_" + r.status); e.transient = true; throw e; }
   const j = await r.json();
   if (j && j.type === "error") { const e = new Error("anthropic_error"); e.transient = true; throw e; }
-  let raw = ((j.content || []).map(b => b.text || "").join("")).trim().replace(/^```(json)?/i, "").replace(/```$/, "").trim();
-  const m = raw.match(/\{[\s\S]*\}/);
-  // The model replied but we couldn't parse JSON out of it — NOT transient.
-  return JSON.parse(m ? m[0] : raw);
+  // Forced tool-use → the result is the tool_use block's typed input.
+  const block = (j.content || []).find(b => b && b.type === "tool_use" && b.input);
+  if (!block) throw new Error("no_tool_use"); // no schema-valid result — NOT transient
+  return block.input;
 }
 
 exports.handler = async (event) => {
@@ -505,7 +538,8 @@ exports.handler = async (event) => {
   // table is unreachable we FAIL OPEN (book anyway; the legacy heuristics above
   // already ran), so a DB hiccup can never lose a real transaction.
   const ehash = emailHash(text);
-  const bankRef = extractBankRef(text);
+  // Prefer the AI-extracted reference; fall back to the regex.
+  const bankRef = (o.bank_ref ? String(o.bank_ref).trim() : "") || extractBankRef(text);
   // Phase 1 dedupes on the SYNTHETIC key (date + direction + amount + normalized
   // merchant). The two emails for one purchase — a bank alert and a merchant
   // receipt — usually DON'T share a reference, so keying on bank_ref would split

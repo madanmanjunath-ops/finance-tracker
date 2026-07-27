@@ -1,5 +1,23 @@
 # Changelog
 
+## v45 — Ingestion redesign Phase 2: schema-enforced AI extraction
+
+The Gmail parser no longer asks the model for freeform JSON and hopes it parses.
+It now uses **forced tool-use with a strict schema**, so every extraction is
+well-formed and typed — eliminating the malformed-output failure mode.
+
+- `parseEmail` calls a `record_email` tool whose `input_schema` defines every
+  field (kind, type, amount, currency, merchant, account, date, category,
+  availableLimit, dueDate, **bank_ref**, confidence) with `tool_choice` forcing
+  it. The result is the tool's validated input, not scraped text.
+- Adds a dedicated **`bank_ref`** field (UPI RRN / UTR / txn id). It's stored on
+  the transaction (preferred over the regex fallback) for the upcoming
+  reference-based exact-match dedup layer.
+- The escalate-on-miss path uses the same schema on the stronger model.
+- Behaviour for the rest of the handler is unchanged (same field names), so
+  card/available-limit anchoring, bills, transfers and dedup all keep working.
+- Server-only change (`ingest.js`, both copies); no cache bump.
+
 ## v44 — Ingestion redesign Phase 1: database-enforced dedup
 
 The Gmail ingest function now claims each transaction's identity in the new
