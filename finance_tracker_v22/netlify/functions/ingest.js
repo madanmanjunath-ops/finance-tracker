@@ -11,6 +11,9 @@
    Env vars: SUPABASE_URL, SUPABASE_SERVICE_KEY, ANTHROPIC_API_KEY,
              optional CLAUDE_MODEL
    ============================================================ */
+const crypto = require("crypto");
+const { dedupKey, extractBankRef } = require("./lib/dedup.js");
+
 const EXP_CATS = ["dining","groceries","fuel","transport","online","entertainment","bills","travel","health","staff","business","rent","emi","subs","cardpay","invest","misc"];
 const INC_CATS = ["salary","freelance","business_inc","rental_inc","interest","dividend","refund","other_inc"];
 
@@ -27,6 +30,58 @@ async function sbPatch(userId, data) {
     method: "PATCH", headers: { apikey: process.env.SUPABASE_SERVICE_KEY, authorization: "Bearer " + process.env.SUPABASE_SERVICE_KEY, "content-type": "application/json", prefer: "return=minimal" },
     body: JSON.stringify({ data, updated_at: new Date().toISOString() }),
   });
+}
+
+// A short, stable fingerprint of an email — used to log each email once.
+function emailHash(text) { return crypto.createHash("sha256").update(String(text || "")).digest("hex").slice(0, 32); }
+
+// Claim a transaction's identity in the transactions table (the new dedup
+// authority). Uses INSERT ... ON CONFLICT (user_id, dedup_key) DO NOTHING via
+// PostgREST's ignore-duplicates. Returns:
+//   { inserted: true, id }  — a NEW transaction,
+//   { inserted: false }     — the dedup_key already exists (a duplicate),
+//   { error: true }         — table unreachable → caller FAILS OPEN (books anyway).
+async function sbClaimTxn(userId, txn, key, bankRef, status) {
+  const row = {
+    user_id: userId, dedup_key: key, occurred_on: txn.date,
+    amount: Math.abs(+txn.amount || 0), currency: txn.currency || "INR",
+    direction: txn.type === "income" ? "credit" : "debit",
+    type: txn.type, merchant: txn.merchant, category: txn.category,
+    account_ref: txn.account || null, bank_ref: bankRef || null,
+    status: status, confidence: txn.confidence || 0, source: "gmail", raw: txn,
+  };
+  try {
+    const r = await fetch(`${process.env.SUPABASE_URL}/rest/v1/transactions?on_conflict=user_id,dedup_key`, {
+      method: "POST",
+      headers: {
+        apikey: process.env.SUPABASE_SERVICE_KEY,
+        authorization: "Bearer " + process.env.SUPABASE_SERVICE_KEY,
+        "content-type": "application/json",
+        prefer: "return=representation,resolution=ignore-duplicates",
+      },
+      body: JSON.stringify(row),
+    });
+    if (!r.ok) return { error: true };
+    const arr = await r.json().catch(() => []);
+    return { inserted: Array.isArray(arr) && arr.length > 0, id: (arr[0] && arr[0].id) || null };
+  } catch (e) { return { error: true }; }
+}
+
+// Best-effort audit log — one row per email, whatever the outcome. Never blocks
+// or fails ingestion. (unique(user_id, email_hash) makes a re-log a no-op.)
+async function sbLogEvent(userId, ehash, outcome, txnId) {
+  try {
+    await fetch(`${process.env.SUPABASE_URL}/rest/v1/ingestion_events?on_conflict=user_id,email_hash`, {
+      method: "POST",
+      headers: {
+        apikey: process.env.SUPABASE_SERVICE_KEY,
+        authorization: "Bearer " + process.env.SUPABASE_SERVICE_KEY,
+        "content-type": "application/json",
+        prefer: "resolution=ignore-duplicates",
+      },
+      body: JSON.stringify({ user_id: userId, email_hash: ehash, outcome: outcome, transaction_id: txnId || null }),
+    });
+  } catch (e) { /* audit is best-effort */ }
 }
 
 function extractVPA(t){const m=String(t||"").match(/\b[a-z0-9._-]{2,}@[a-z]{2,}\b/i);return m?m[0]:null;}
@@ -442,12 +497,33 @@ exports.handler = async (event) => {
 
   const threshold = (data.gmail && data.gmail.autoThreshold) != null ? data.gmail.autoThreshold : 70;
   const autoBook = (o.confidence || 0) >= threshold;
+
+  // ---- DB-enforced dedup (the new authority) ----
+  // Claim this transaction's identity in the transactions table. If the
+  // dedup_key already exists, the database rejects it and we stop — a duplicate
+  // never reaches the ledger, no matter how the two emails were worded. If the
+  // table is unreachable we FAIL OPEN (book anyway; the legacy heuristics above
+  // already ran), so a DB hiccup can never lose a real transaction.
+  const ehash = emailHash(text);
+  const bankRef = extractBankRef(text);
+  // Phase 1 dedupes on the SYNTHETIC key (date + direction + amount + normalized
+  // merchant). The two emails for one purchase — a bank alert and a merchant
+  // receipt — usually DON'T share a reference, so keying on bank_ref would split
+  // them. We still STORE bank_ref for a future exact-match layer (Phase 2).
+  const key = dedupKey({ date: txn.date, type: txn.type, amount: txn.amount, merchant: txn.merchant });
+  const claim = await sbClaimTxn(user_id, txn, key, bankRef, autoBook ? "booked" : "review");
+  if (claim && claim.inserted === false && !claim.error) {
+    await sbLogEvent(user_id, ehash, "duplicate", null);
+    return json(200, { ok: true, booked: "duplicate_db", merchant: txn.merchant, amount: amt });
+  }
+
   const next = JSON.parse(JSON.stringify(data));
   // apply any available-limit re-anchor / statement-due updates gathered above
   applyCardUpdates(next);
   if (autoBook) { txn.status = "auto"; next.transactions = [txn, ...(next.transactions || [])].sort((a, b) => b.date.localeCompare(a.date)); }
   else { txn.status = "pending"; next.pending = [txn, ...(next.pending || [])]; }
   await sbPatch(user_id, next);
+  await sbLogEvent(user_id, ehash, autoBook ? "booked" : "review", claim && claim.id);
   return json(200, { ok: true, booked: autoBook ? "auto" : "pending", merchant: txn.merchant, amount: amt });
 };
 

@@ -1,5 +1,26 @@
 # Changelog
 
+## v44 — Ingestion redesign Phase 1: database-enforced dedup
+
+The Gmail ingest function now claims each transaction's identity in the new
+`transactions` table before booking it. A duplicate is rejected by the
+**database** (`unique (user_id, dedup_key)`), not by app-code heuristics — so a
+duplicate can't reach the ledger no matter how the two emails are worded.
+
+- On the main booking path, ingest computes the synthetic `dedup_key` (date +
+  direction + amount + normalized merchant) and does an
+  `insert … on conflict do nothing`. Key already present → returns
+  `duplicate_db`, nothing booked. New → books as before.
+- **Fails open:** if the table is unreachable, it books anyway (the legacy
+  heuristics still ran), so a DB hiccup can never lose a real transaction.
+- Records every outcome in `ingestion_events` (best-effort audit log).
+- The bank reference (UPI RRN / UTR) is extracted and stored now, for a future
+  exact-match dedup layer (Phase 2).
+- Requires the one-time SQL in `INGESTION-DB-SETUP.md`. Server-only change
+  (`ingest.js` + `lib/dedup.js`); no cache bump.
+- Not yet covered: backfilling pre-existing transactions into the table (so a
+  re-forward of an *old* email is caught) — a small follow-up.
+
 ## v43 — Dedupe Swiggy/Instamart orders split across two emails
 
 - **Gap in the v41 fix:** a single ₹775 Swiggy Instamart order still double-booked
