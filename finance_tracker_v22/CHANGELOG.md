@@ -1,5 +1,20 @@
 # Changelog
 
+## v47 — Ingestion redesign Phase 3b: de-duplicate the ledger view
+
+- The transaction list is now **de-duplicated on load** using the exact same
+  dedup key as the server (`FT.dedupKey`, mirrored from
+  `netlify/functions/lib/dedup.js`). Historical duplicates already in the ledger
+  — like the Swiggy/Instamart pairs — disappear from view, and the on-screen
+  numbers finally match the de-duplicated `transactions` table.
+- Deliberately chosen over "read transactions from the table" for now: reading
+  from the table before manual writes also move there (a later phase) would make
+  in-app edits/deletes show ghosts. This client-side collapse achieves the
+  visible goal with zero edit/delete risk.
+- A unit test cross-checks that the browser and server dedup keys are identical,
+  so the two copies can't silently drift.
+- Cache-bust `v=47`; service-worker cache `ft-v47` (store.js changed).
+
 ## v46 — Ingestion redesign Phase 3a: transactions backfill
 
 - New secret-protected endpoint `/api/backfill-transactions?key=<EMAIL_TEST_SECRET>`
