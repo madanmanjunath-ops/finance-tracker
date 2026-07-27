@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Privacy Policy — Prism Finance Tracker</title>
+  <meta name="robots" content="index" />
+  <style>
+    :root { color-scheme: light dark; }
+    body { max-width: 760px; margin: 0 auto; padding: 32px 20px 80px; font: 16px/1.65 -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; color: #16202c; background: #fff; }
+    @media (prefers-color-scheme: dark) { body { color: #dfe6e2; background: #0c0f0e; } a { color: #4ea88a; } code { background: #1a201e; } }
+    h1 { font-size: 28px; margin: 0 0 4px; }
+    h2 { font-size: 19px; margin: 32px 0 8px; }
+    .muted { color: #6b7772; font-size: 14px; }
+    a { color: #0a5f46; }
+    code { background: #f1f4f2; padding: 1px 5px; border-radius: 4px; font-size: 14px; }
+    .box { border: 1px solid #e2e7e4; border-radius: 12px; padding: 14px 16px; margin: 18px 0; }
+    @media (prefers-color-scheme: dark) { .box { border-color: #26302b; } }
+    table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 14.5px; }
+    th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #e2e7e4; vertical-align: top; }
+    @media (prefers-color-scheme: dark) { th, td { border-color: #26302b; } }
+    footer { margin-top: 48px; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <h1>Privacy Policy</h1>
+  <p class="muted">Prism Finance Tracker · Last updated: 27 July 2026</p>
+
+  <div class="box">
+    This policy explains what data Prism Finance Tracker ("the app", "we") collects,
+    why, who it is shared with, and your choices. The app is operated by
+    <strong>[YOUR NAME OR ENTITY]</strong> ("we"), based in <strong>[CITY, COUNTRY]</strong>.
+    Questions: <strong>[CONTACT EMAIL]</strong>.
+  </div>
+
+  <h2>1. What we collect</h2>
+  <table>
+    <tr><th>Category</th><th>Examples</th><th>Why</th></tr>
+    <tr><td>Account</td><td>Your email address (and Google account identifier if you sign in with Google)</td><td>To create and secure your account</td></tr>
+    <tr><td>Financial data you enter</td><td>Accounts, balances, credit cards, transactions, income, investments, goals</td><td>To provide the core tracking features</td></tr>
+    <tr><td>Emails you choose to forward</td><td>The text of bank/card emails you forward via the optional Gmail import</td><td>To extract transactions automatically</td></tr>
+    <tr><td>Usage</td><td>Counts of AI requests per day</td><td>To enforce fair-use limits and prevent abuse</td></tr>
+  </table>
+  <p>We do <strong>not</strong> ask for or store your bank login credentials, card
+  numbers in full, OTPs, or passwords to any third-party service. The app never
+  connects directly to your bank.</p>
+
+  <h2>2. Where your data is stored</h2>
+  <p>Your data is stored in a <strong>Supabase</strong> (PostgreSQL) database, in a
+  row tied to your user account and protected by <strong>Row-Level Security</strong>,
+  which technically restricts each row to its owner. A copy is also cached in your
+  browser so the app works offline. Data is transmitted over encrypted connections
+  (HTTPS).</p>
+
+  <h2>3. Who we share it with (service providers)</h2>
+  <p>We use a small number of processors to run the service. We do not sell your
+  data or share it for advertising.</p>
+  <table>
+    <tr><th>Provider</th><th>Purpose</th><th>What it receives</th></tr>
+    <tr><td>Supabase</td><td>Database &amp; authentication</td><td>Your account and financial data</td></tr>
+    <tr><td>Netlify</td><td>Website &amp; server functions hosting</td><td>Requests to the app and its functions</td></tr>
+    <tr><td>Anthropic (Claude)</td><td>AI features (email parsing, coaching, insights)</td><td>The specific text you parse or ask about — e.g. a forwarded email's text or your question. Per Anthropic's API terms, inputs are not used to train their models.</td></tr>
+    <tr><td>Google</td><td>Optional "Sign in with Google"</td><td>Basic profile/email for authentication only</td></tr>
+    <tr><td>Resend</td><td>Optional daily snapshot email</td><td>Your email address and the snapshot content</td></tr>
+  </table>
+  <p>The optional Gmail import runs as a script <em>inside your own Google account</em>
+  and forwards email text to the app's ingest endpoint. You control it and can stop
+  it at any time.</p>
+
+  <h2>4. AI processing</h2>
+  <p>When you use an AI feature, only the text needed for that feature (for example,
+  the body of an email you're importing, or a question you type) is sent to Anthropic
+  to generate the result. AI output is generated automatically and may be inaccurate;
+  see the disclaimer in our <a href="terms.html">Terms</a>.</p>
+
+  <h2>5. How long we keep it</h2>
+  <p>We keep your data for as long as your account exists. When you delete your
+  account, your database row and its contents are deleted. Forwarded email text is
+  processed to extract a transaction and stored as part of your data; it is not kept
+  separately.</p>
+
+  <h2>6. Your rights</h2>
+  <p>You can access, correct, export, or delete your data at any time from within the
+  app, or by contacting <strong>[CONTACT EMAIL]</strong>. Depending on where you live
+  (including under India's Digital Personal Data Protection Act, 2023, and the GDPR
+  where applicable), you may have additional rights to withdraw consent or lodge a
+  complaint with a data-protection authority.</p>
+
+  <h2>7. Security</h2>
+  <p>We use Row-Level Security, encrypted transport, and keep all secret API keys on
+  the server (never in your browser). No system is perfectly secure; we cannot
+  guarantee absolute security, and you use the app at your own risk.</p>
+
+  <h2>8. Children</h2>
+  <p>The app is not directed to anyone under 18, and we do not knowingly collect data
+  from children.</p>
+
+  <h2>9. Changes</h2>
+  <p>We may update this policy; we'll change the "Last updated" date above and, for
+  material changes, notify you in the app or by email.</p>
+
+  <footer class="muted">
+    <a href="/">← Back to the app</a> · See also our <a href="terms.html">Terms of Service</a>
+  </footer>
+</body>
+</html>

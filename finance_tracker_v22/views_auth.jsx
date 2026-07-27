@@ -97,8 +97,15 @@ function AuthScreen({ onAuthed }) {
           </div>
         </div>
 
-        <div style={{ textAlign: "center", marginTop: 16, fontSize: 11.5, color: "var(--text-3)", lineHeight: 1.6 }}>
+        <div style={{ textAlign: "center", marginTop: 16, fontSize: 11.5, color: "var(--text-3)", lineHeight: 1.7 }}>
           Your financial data is stored privately under your account and synced across your devices.
+          <br />
+          {mode === "signup" ? "By creating an account, you agree to our " : "By using the app, you agree to our "}
+          <a href="terms.html" target="_blank" rel="noopener" style={{ color: "var(--text-2)", textDecoration: "underline" }}>Terms</a>
+          {" & "}
+          <a href="privacy.html" target="_blank" rel="noopener" style={{ color: "var(--text-2)", textDecoration: "underline" }}>Privacy Policy</a>.
+          <br />
+          <span style={{ opacity: 0.85 }}>Informational tool — not financial advice.</span>
         </div>
       </div>
     </div>
