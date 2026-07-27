@@ -1,5 +1,20 @@
 # Changelog
 
+## v48 — Legal pages (Privacy, Terms, disclaimer)
+
+- New `privacy.html` and `terms.html` — self-contained, theme-aware static pages
+  written to match how the app actually handles data (Supabase + RLS storage,
+  Anthropic for AI, Google SSO, the optional Gmail forwarder, Resend email).
+- Terms includes a prominent **"Not financial advice"** disclaimer covering AI
+  output and imported-transaction accuracy.
+- The auth screen now shows a consent line linking both pages ("By creating an
+  account, you agree to…") plus a short "informational tool — not financial
+  advice" note.
+- **Templates:** a few bracketed fields (`[YOUR NAME OR ENTITY]`, `[CONTACT
+  EMAIL]`, `[CITY, COUNTRY]`, `[COUNTRY / STATE]`) must be filled in, and a
+  lawyer should review before onboarding real users.
+- Cache-bust `v=48`; service-worker cache `ft-v48` (auth screen changed).
+
 ## v47 — Ingestion redesign Phase 3b: de-duplicate the ledger view
 
 - The transaction list is now **de-duplicated on load** using the exact same
