@@ -1,5 +1,19 @@
 # Changelog
 
+## v46 — Ingestion redesign Phase 3a: transactions backfill
+
+- New secret-protected endpoint `/api/backfill-transactions?key=<EMAIL_TEST_SECRET>`
+  that copies each user's existing blob transactions into the `transactions`
+  table, computing the **same `dedup_key`** the live ingest path uses. Idempotent
+  (`insert … on conflict do nothing`), safe to re-run.
+- Changes nothing in the app — it only populates the table so the DB dedup also
+  knows about history (and closes the "re-forward of an old email" gap). The
+  Review inbox stays in the blob for now.
+- Returns a JSON summary: users processed, blob transaction count, rows inserted,
+  and how many were skipped as duplicates (pre-existing blob duplicates collapse
+  to one row).
+- Server-only change (new function + a `netlify.toml` redirect); no cache bump.
+
 ## v45 — Ingestion redesign Phase 2: schema-enforced AI extraction
 
 The Gmail parser no longer asks the model for freeform JSON and hopes it parses.

@@ -23,6 +23,12 @@
   to = "/.netlify/functions/send-snapshot-now"
   status = 200
 
+# One-time transactions backfill (secret-protected; see INGESTION-REDESIGN.md).
+[[redirects]]
+  from = "/api/backfill-transactions"
+  to = "/.netlify/functions/backfill-transactions"
+  status = 200
+
 # Daily snapshot email — 01:45 UTC = 07:15 AM IST.
 [functions."daily-email"]
   schedule = "45 1 * * *"
