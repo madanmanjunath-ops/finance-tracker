@@ -1,5 +1,19 @@
 # Changelog
 
+## v49 — Loans: add / edit / delete from the Loans tab
+
+- **Bug:** loans captured during onboarding (`state.loans`) had no editor. The
+  Loans tab only showed debt KPIs and pointed to the Accounts tab — which edits
+  `state.accounts`, a different list — so loans were effectively read-only.
+- **Fix:** the Loans tab now has an editable **loan list** and a **Add loan**
+  button, plus a `LoanModal` (name, type, outstanding, rate, monthly EMI, EMI
+  day, currency) for adding, editing, and deleting — wired to the existing
+  `addLoan` / `updateLoan` / `deleteLoan` actions.
+- Because net worth, the debt KPIs, the payoff plan, and the AI contexts all
+  read `state.loans` through selectors, any change here **updates those areas
+  automatically** (and syncs to the cloud + daily email).
+- Cache-bust `v=49`; service-worker cache `ft-v49` (Loans view changed).
+
 ## v48 — Legal pages (Privacy, Terms, disclaimer)
 
 - New `privacy.html` and `terms.html` — self-contained, theme-aware static pages
