@@ -5,6 +5,6 @@
   "description": "Offline unit + security tests for Finance Tracker. Lives at the repo root, OUTSIDE the Netlify base directory (finance_tracker_v22), so it never affects the deploy.",
   "type": "commonjs",
   "scripts": {
-    "test": "node --test test/compute.test.js test/parser.test.js test/security.test.js"
+    "test": "node --test test/compute.test.js test/parser.test.js test/security.test.js test/dedup.test.js"
   }
 }
