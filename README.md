@@ -1,5 +1,7 @@
 # Finance Tracker
 
+[![tests](https://github.com/madanmanjunath-ops/finance-tracker/actions/workflows/ci.yml/badge.svg)](https://github.com/madanmanjunath-ops/finance-tracker/actions/workflows/ci.yml)
+
 A personal finance + Indian credit-card optimiser. It tracks spending, net
 worth, credit-card limits and rewards, imports transactions from bank emails
 and statements, and includes optional AI features (email parsing, an investment

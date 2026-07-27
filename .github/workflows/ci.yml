@@ -1,0 +1,23 @@
+name: tests
+
+# Run the zero-dependency test suite on every PR and on pushes to main.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      # No install step: the suite has no dependencies and uses Node's built-in
+      # test runner (see package.json "test").
+      - name: Run tests
+        run: npm test
