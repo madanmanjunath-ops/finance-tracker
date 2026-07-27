@@ -93,6 +93,30 @@ test("REGRESSION (double entry): one order as two emails is caught below ₹1000
   assert.equal(I.isFuzzyDup(incoming, existing), true);
 });
 
+test("REGRESSION (double entry #2): Swiggy + Instamart merge even with different categories", () => {
+  // Real case: a ₹775 Swiggy Instamart order arrived as "Instamart" (Groceries)
+  // AND "Swiggy" (Food & Dining). Different categories dodged the v41 category
+  // check — brand-family recognition catches it (same company).
+  const existing = { source: "gmail", date: "2026-07-27", type: "expense", amount: 775, category: "groceries", merchant: "Instamart" };
+  const incoming = { source: "gmail", date: "2026-07-27", type: "expense", amount: 775, category: "dining", merchant: "Swiggy" };
+  assert.equal(I.isFuzzyDup(incoming, existing), true);
+});
+
+test("brandFamily / sameBrandFamily: Swiggy≈Instamart, Zomato≈Blinkit, not cross-family", () => {
+  assert.equal(I.sameBrandFamily("Swiggy", "Instamart"), true);
+  assert.equal(I.sameBrandFamily("Zomato Ltd", "Blinkit"), true);
+  assert.equal(I.sameBrandFamily("Swiggy", "Zomato"), false);   // different families
+  assert.equal(I.sameBrandFamily("Amazon", "Flipkart"), false); // neither in a family
+});
+
+test("isFuzzyDup: two unrelated merchants of the same small amount are NOT merged", () => {
+  // Guards against over-merging: different merchants, different categories, both
+  // under ₹1000, not a brand family → left as two separate transactions.
+  const existing = { source: "gmail", date: "2026-07-27", type: "expense", amount: 250, category: "dining", merchant: "Blue Tokai" };
+  const incoming = { source: "gmail", date: "2026-07-27", type: "expense", amount: 250, category: "transport", merchant: "Uber" };
+  assert.equal(I.isFuzzyDup(incoming, existing), false);
+});
+
 test("isFuzzyDup: large amounts match even without a matching category", () => {
   const existing = { source: "gmail", date: "2026-07-24", type: "expense", amount: 12000, category: "travel" };
   const incoming = { source: "gmail", date: "2026-07-24", type: "expense", amount: 12000, category: "misc" };

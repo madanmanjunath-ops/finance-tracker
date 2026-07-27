@@ -1,5 +1,20 @@
 # Changelog
 
+## v43 — Dedupe Swiggy/Instamart orders split across two emails
+
+- **Gap in the v41 fix:** a single ₹775 Swiggy Instamart order still double-booked
+  because the two emails were categorised differently — "Instamart" as Groceries
+  and "Swiggy" as Food & Dining — so the sub-₹1000 same-category dedupe didn't
+  match.
+- **Fix:** the fuzzy duplicate guard now also merges a same-day, same-type,
+  same-amount pair when the two merchants belong to the same **brand family**
+  (Swiggy owns Instamart, Zomato owns Blinkit) — the merchants that routinely
+  send one order as two differently-labelled emails. The large-amount (≥ ₹1000)
+  and same-category paths still apply; two unrelated merchants of the same small
+  amount are still left as separate transactions.
+- Server-only change (`ingest.js`, both copies); regression tests in
+  `test/parser.test.js`. No cache bump.
+
 ## v42 — Ingest: escalate-on-miss + correct account on recovered stubs
 
 Follow-up to v41. When the cheap parser misreads an email, the recovered entry

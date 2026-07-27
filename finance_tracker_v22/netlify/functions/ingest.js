@@ -463,12 +463,35 @@ function txnKey(t) {
 // signal to avoid merging two genuinely different buys: EITHER the amount is
 // large (≥ ₹1000, where an exact same-day coincidence is very unlikely) OR the
 // category is identical (both "groceries" for the two halves of one order).
+// Merchants that are the SAME company and routinely send two emails for one
+// order under different names (a food receipt + a bank/quick-commerce alert),
+// so the two halves often carry different merchant text AND different category.
+// Grouping them lets the fuzzy guard merge e.g. "Swiggy" + "Instamart".
+const BRAND_FAMILIES = [
+  ["swiggy", "instamart"],   // Swiggy owns Instamart
+  ["zomato", "blinkit"],     // Zomato owns Blinkit
+];
+function brandFamily(merchant) {
+  const m = String(merchant || "").toLowerCase();
+  for (const fam of BRAND_FAMILIES) if (fam.some(k => m.includes(k))) return fam[0];
+  return null;
+}
+function sameBrandFamily(m1, m2) {
+  const f = brandFamily(m1);
+  return !!f && f === brandFamily(m2);
+}
 function isFuzzyDup(txn, t) {
   if (!t || t.source !== "gmail") return false;
   if (t.date !== txn.date || t.type !== txn.type) return false;
   const a = +txn.amount || 0;
   if (Math.abs((+t.amount || 0) - a) >= 0.01) return false;
-  return a >= 1000 || (!!t.category && !!txn.category && t.category === txn.category);
+  // Same day + type + exact amount, and one of: a large amount (coincidence
+  // unlikely), the SAME category, or two merchants from the same brand family
+  // (Swiggy/Instamart) — the last catches an order split across two emails with
+  // different names AND categories.
+  return a >= 1000
+    || (!!t.category && !!txn.category && t.category === txn.category)
+    || sameBrandFamily(t.merchant, txn.merchant);
 }
 
 // Test-only: expose pure internals for the offline unit-test suite. Netlify's
@@ -476,5 +499,5 @@ function isFuzzyDup(txn, t) {
 module.exports.__test = {
   tokenFilter, cleanPayee, extractVPA, extractUpiPayee, looksLikeTransfer,
   matchCardStrict, availFromText, statedAvail, txnAmountFromText, guessTxnType,
-  stubAccount, txnKey, isFuzzyDup, SYMOK, catOk,
+  stubAccount, txnKey, isFuzzyDup, brandFamily, sameBrandFamily, SYMOK, catOk,
 };
