@@ -100,10 +100,16 @@ function cleanPayee(name) {
 // The payee is the segment after the numeric reference. Names hold no digits,
 // so the capture excludes them — that stops a trailing amount bleeding in.
 function extractUpiPayee(text) {
-  const s = String(text || "");
-  let m = s.match(/UPI\/[A-Z0-9]+\/\d+\/([A-Za-z][A-Za-z .&'-]{1,60})/i);
+  const s = String(text || "").replace(/\r/g, "\n");
+  // "UPI/<type>/<refno>/<name>" — the payee is the segment after the numeric
+  // reference. The \s* after the FINAL slash is critical: in plain-text bank
+  // emails the name frequently WRAPS onto the next line (the table cell breaks),
+  // and without it a clear payee like "LAKSHMAN J" reads as "Unknown".
+  let m = s.match(/UPI[\/:][A-Za-z0-9]{1,6}\/\d{4,}\/\s*([A-Za-z][A-Za-z .&'-]{1,60})/i);
   if (m) return cleanPayee(m[1]);
-  m = s.match(/UPI\/[^\n]*?\/([A-Za-z][A-Za-z .&'-]{2,40})\s*$/m);
+  // Looser catch-all: any "UPI/.../<trailing name>" ending a line (also allows
+  // the name to sit just after the last slash, same line or wrapped).
+  m = s.match(/UPI[\/:][^\n]{0,60}?\/\s*([A-Za-z][A-Za-z .&'-]{2,40})\s*$/mi);
   if (m) return cleanPayee(m[1]);
   return null;
 }
@@ -181,6 +187,12 @@ function guessTxnType(text) {
   const s = String(text || "").toLowerCase();
   if (/\b(credited|received|refund)\b/.test(s) && !/\b(debited|spent|withdrawn)\b/.test(s)) return "income";
   return "expense";
+}
+// True when the model gave us no usable payee (blank, or a generic/placeholder
+// label like "Unknown"/"Transaction"). Used to decide whether to escalate.
+function merchantWeak(m) {
+  const s = String(m || "").trim().toLowerCase();
+  return !s || /^(unknown|transaction|payment|transfer|fund transfer|debit|credit|spent|purchase|upi)\.?$/.test(s);
 }
 // Best account for a review stub: match the last-4 in the email ("A/c no.
 // XX3774" → the account/card ending 3774) so it isn't blindly tagged to the
@@ -328,6 +340,19 @@ exports.handler = async (event) => {
       const amt2 = Math.abs(+String(o2.amount).replace(/[^0-9.]/g, "")) || 0;
       if (amt2) { o = o2; amt = amt2; }
     } catch (e) { /* keep the cheap result; the deterministic fallback below still applies */ }
+  }
+
+  // Escalate-on-weak-merchant: the amount is fine but the cheap model gave no
+  // usable payee ("Unknown"), AND our deterministic UPI/VPA extractors can't
+  // recover one either — yet the email clearly references a payee. Re-parse this
+  // one email on the stronger model to get the name, rather than showing
+  // "Unknown". Guarded so it only fires when a name is genuinely present.
+  if (amt && merchantWeak(o.merchant) && !extractUpiPayee(text) && !extractVPA(text)
+      && /\b(upi|vpa|paid to|received from|sent to|transfer to|to\s+[A-Za-z]{3})\b/i.test(text)) {
+    try {
+      const o2 = await parseEmail(text, data, { strong: true });
+      if (o2 && Math.abs(+String(o2.amount).replace(/[^0-9.]/g, "")) > 0 && !merchantWeak(o2.merchant)) o = o2;
+    } catch (e) { /* keep the cheap result */ }
   }
 
   // ---- card-side updates that can ride on ANY email, transaction or not ----
@@ -609,5 +634,5 @@ function isFuzzyDup(txn, t) {
 module.exports.__test = {
   tokenFilter, cleanPayee, extractVPA, extractUpiPayee, looksLikeTransfer,
   matchCardStrict, availFromText, statedAvail, txnAmountFromText, guessTxnType,
-  stubAccount, txnKey, isFuzzyDup, brandFamily, sameBrandFamily, SYMOK, catOk,
+  merchantWeak, stubAccount, txnKey, isFuzzyDup, brandFamily, sameBrandFamily, SYMOK, catOk,
 };

@@ -1,5 +1,24 @@
 # Changelog
 
+## v50 — Fix "Unknown" payee on UPI transactions (wrapped-name bug)
+
+- **Root cause:** in plain-text bank emails the payee name often **wraps onto the
+  line after** the `UPI/<type>/<ref>/` reference. `extractUpiPayee` required the
+  name immediately after the final slash, so a wrapped name (e.g. `LAKSHMAN J`)
+  returned null — and the model's placeholder "Unknown" survived. Reproduced and
+  fixed.
+- **Fix:** the UPI extractor now allows whitespace/line-breaks after the final
+  slash and broadens the type/ref patterns, so the payee is recovered whether it
+  sits on the same line or the next. (Deterministic — works for any bank's UPI
+  format.)
+- **Safety net:** when the amount is fine but the merchant is still weak
+  ("Unknown") and the deterministic extractors can't find a payee **but the email
+  clearly references one**, ingest now escalates that single email to the
+  stronger model to recover the name — instead of showing "Unknown".
+- Regression tests added (`test/parser.test.js`), including the exact ₹100
+  Lakshman case and wrapped/CRLF variants. Server-only change (`ingest.js`, both
+  copies); no cache bump.
+
 ## v49 — Loans: add / edit / delete from the Loans tab
 
 - **Bug:** loans captured during onboarding (`state.loans`) had no editor. The
