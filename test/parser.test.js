@@ -54,6 +54,23 @@ test("extractUpiPayee: pulls the payee after the numeric UPI reference", () => {
   assert.equal(I.extractUpiPayee("no upi string here"), null);
 });
 
+test("REGRESSION (Unknown payee): name wrapped onto the NEXT line is still extracted", () => {
+  // The real ₹100 case: plain-text bank emails wrap the payee onto a new line
+  // after the UPI reference. Before the fix this returned null → merchant "Unknown".
+  assert.equal(I.extractUpiPayee("UPI/P2A/309078266263/LAKSHMAN J"), "Lakshman J");
+  assert.equal(I.extractUpiPayee("Transaction Info:\nUPI/P2A/309078266263/\nLAKSHMAN J"), "Lakshman J");
+  assert.equal(I.extractUpiPayee("UPI/P2A/309078266263/\r\nLAKSHMAN J\r\n"), "Lakshman J");
+  assert.equal(I.extractUpiPayee("UPI/P2M/98765432/Mr RAJESH SINGH"), "Rajesh Singh");
+});
+
+test("merchantWeak: flags blank / placeholder names, accepts real ones", () => {
+  assert.equal(I.merchantWeak("Unknown"), true);
+  assert.equal(I.merchantWeak(""), true);
+  assert.equal(I.merchantWeak("Transaction"), true);
+  assert.equal(I.merchantWeak("Lakshman J"), false);
+  assert.equal(I.merchantWeak("Swiggy"), false);
+});
+
 test("extractVPA: finds a UPI handle", () => {
   assert.equal(I.extractVPA("paid to rajesh@okhdfc"), "rajesh@okhdfc");
   assert.equal(I.extractVPA("no handle"), null);
