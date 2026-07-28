@@ -342,13 +342,14 @@ exports.handler = async (event) => {
     } catch (e) { /* keep the cheap result; the deterministic fallback below still applies */ }
   }
 
-  // Escalate-on-weak-merchant: the amount is fine but the cheap model gave no
-  // usable payee ("Unknown"), AND our deterministic UPI/VPA extractors can't
-  // recover one either — yet the email clearly references a payee. Re-parse this
-  // one email on the stronger model to get the name, rather than showing
-  // "Unknown". Guarded so it only fires when a name is genuinely present.
-  if (amt && merchantWeak(o.merchant) && !extractUpiPayee(text) && !extractVPA(text)
-      && /\b(upi|vpa|paid to|received from|sent to|transfer to|to\s+[A-Za-z]{3})\b/i.test(text)) {
+  // Escalate-on-weak-merchant: the amount parsed fine but the cheap model gave
+  // no usable payee ("Unknown"), AND our deterministic UPI/VPA extractors can't
+  // recover one either. Re-parse this ONE email on the stronger model to get the
+  // name — for ANY bank narration format (UPI/IMPS/NEFT/"paid to"/etc.), not a
+  // hard-coded keyword list. This is the format-independent safety net: if the
+  // email genuinely has no payee, the strong model also returns Unknown and we
+  // fall through unchanged; the only cost is one extra call on a real miss.
+  if (amt && merchantWeak(o.merchant) && !extractUpiPayee(text) && !extractVPA(text)) {
     try {
       const o2 = await parseEmail(text, data, { strong: true });
       if (o2 && Math.abs(+String(o2.amount).replace(/[^0-9.]/g, "")) > 0 && !merchantWeak(o2.merchant)) o = o2;
