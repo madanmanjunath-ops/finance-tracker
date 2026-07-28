@@ -84,6 +84,19 @@ async function sbLogEvent(userId, ehash, outcome, txnId) {
   } catch (e) { /* audit is best-effort */ }
 }
 
+// Collapse the whitespace bloat that HTML bank emails produce when flattened to
+// plain text — nested tables become hundreds of blank, deeply-indented lines
+// that otherwise push the real transaction details (payee, UPI ref) PAST our
+// truncation limits, so nothing downstream ever sees them. Runs before any
+// parsing/slicing.
+function normalizeText(t) {
+  return String(t || "")
+    .replace(/\r/g, "\n")
+    .replace(/[ \t ]+/g, " ")   // runs of spaces/tabs/nbsp → one space
+    .replace(/ *\n */g, "\n")         // strip indentation around line breaks
+    .replace(/\n{2,}/g, "\n")         // collapse blank lines
+    .trim();
+}
 function extractVPA(t){const m=String(t||"").match(/\b[a-z0-9._-]{2,}@[a-z]{2,}\b/i);return m?m[0]:null;}
 // Tidy a payee name: collapse spaces, drop a leading honorific, strip a
 // trailing amount/currency remnant, de-shout ALL CAPS.
@@ -295,7 +308,7 @@ exports.handler = async (event) => {
   if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_KEY || !process.env.ANTHROPIC_API_KEY) return json(500, { error: "Server missing env vars." });
   let body; try { body = JSON.parse(event.body || "{}"); } catch (e) { return json(400, { error: "Bad JSON" }); }
   const token = event.headers["x-ingest-token"] || body.token || "";
-  const text = body.text || body.body || "";
+  const text = normalizeText(body.text || body.body || "");
   if (!token) return json(401, { error: "Missing ingest token" });
   if (!text.trim()) return json(400, { error: "Missing email text" });
 
@@ -634,6 +647,6 @@ function isFuzzyDup(txn, t) {
 // function runtime only ever calls exports.handler, so this has no runtime effect.
 module.exports.__test = {
   tokenFilter, cleanPayee, extractVPA, extractUpiPayee, looksLikeTransfer,
-  matchCardStrict, availFromText, statedAvail, txnAmountFromText, guessTxnType,
+  normalizeText, matchCardStrict, availFromText, statedAvail, txnAmountFromText, guessTxnType,
   merchantWeak, stubAccount, txnKey, isFuzzyDup, brandFamily, sameBrandFamily, SYMOK, catOk,
 };

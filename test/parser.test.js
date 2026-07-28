@@ -71,6 +71,27 @@ test("merchantWeak: flags blank / placeholder names, accepts real ones", () => {
   assert.equal(I.merchantWeak("Swiggy"), false);
 });
 
+test("REGRESSION (whitespace bloat): normalizeText pulls truncated payee back into range", () => {
+  // The real ₹12,000 case: the HTML bank email flattens to hundreds of blank,
+  // deeply-indented lines, pushing the payee past the 2500-char parse window.
+  // Reproduce a bloated body and prove normalizeText compacts it so the UPI line
+  // lands early enough for the parser + extractor to see it.
+  const indent = "\n" + " ".repeat(40);
+  const bloat = indent.repeat(120); // ~4800 chars of whitespace, like the real email
+  const rawBody =
+    "Dear Madan M," + bloat + "Amount Debited:" + indent + "INR 12000.00" +
+    bloat + "Transaction Info:" + indent + "UPI/P2A/429183168943/CHETANA H K" + bloat + "footer";
+
+  // Before: the UPI line is beyond the 2500-char parse window (payee lost).
+  assert.ok(rawBody.indexOf("UPI/P2A") > 2500, "precondition: payee is truncated in the raw body");
+
+  const clean = I.normalizeText(rawBody);
+  // After: the UPI line is now well within range...
+  assert.ok(clean.indexOf("UPI/P2A") < 500, "normalized: payee is back in range");
+  // ...and the payee extracts from the first 2500 chars the parser actually reads.
+  assert.equal(I.extractUpiPayee(clean.slice(0, 2500)), "Chetana H K");
+});
+
 test("extractVPA: finds a UPI handle", () => {
   assert.equal(I.extractVPA("paid to rajesh@okhdfc"), "rajesh@okhdfc");
   assert.equal(I.extractVPA("no handle"), null);
