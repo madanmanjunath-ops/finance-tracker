@@ -1,5 +1,18 @@
 # Changelog
 
+## v51 — Format-independent payee recovery (stop "Unknown" whack-a-mole)
+
+- The strong-model safety net for a weak/"Unknown" merchant previously only
+  fired when the email matched a hard-coded keyword list (upi/vpa/paid to/…) — so
+  a bank narration format we hadn't anticipated (NEFT, IMPS, "transfer to X",
+  etc.) still slipped through to "Unknown."
+- **Fix:** ingest now escalates to the stronger model for **any** transaction
+  where the amount parsed but the merchant is still "Unknown" and the
+  deterministic UPI/VPA extractors found no name — regardless of narration
+  format. If the email genuinely has no payee, the strong model also returns
+  Unknown and we fall through unchanged; the only cost is one extra call on a
+  real miss. Server-only change (`ingest.js`, both copies); no cache bump.
+
 ## v50 — Fix "Unknown" payee on UPI transactions (wrapped-name bug)
 
 - **Root cause:** in plain-text bank emails the payee name often **wraps onto the
