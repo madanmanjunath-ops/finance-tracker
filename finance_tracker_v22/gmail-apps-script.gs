@@ -117,7 +117,15 @@ function run(query, enforceCutoff) {
       // cutoff and mark it seen so it's never forwarded or rescanned.
       if (startAfterMs && msg.getDate().getTime() <= startAfterMs) { seen[id] = Date.now(); continue; }
 
-      var body = msg.getPlainBody();
+      // Collapse whitespace bloat: HTML bank emails flatten into hundreds of
+      // blank, deeply-indented lines, which push the real transaction details
+      // (payee / UPI ref) past the length limit below and get them truncated
+      // away. Collapsing runs of spaces and blank lines keeps the content intact.
+      var body = msg.getPlainBody()
+        .replace(/[ \t ]+/g, " ")
+        .replace(/ *\n */g, "\n")
+        .replace(/\n{2,}/g, "\n")
+        .trim();
       // NOTE: we deliberately do NOT prepend "From: <sender>" to the text — the
       // bank's name in the From line was anchoring the AI to pick the bank as the
       // merchant instead of the actual payee in the body. Send subject + body only.

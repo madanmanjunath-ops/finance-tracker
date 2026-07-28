@@ -1,5 +1,24 @@
 # Changelog
 
+## v52 — Fix the REAL "Unknown" cause: whitespace-bloat truncation
+
+The actual root cause behind the recurring "Unknown" payees (Lakshman, Chetana…):
+HTML bank emails flatten to plain text as **hundreds of blank, deeply-indented
+lines**, pushing the real transaction details (payee / UPI reference) **past the
+truncation limits** — the Gmail script sends `slice(0, 4000)` and the parser
+reads `slice(0, 2500)`. The amount squeaked in; the payee was cut off before any
+regex or model (cheap or strong) ever saw it. The earlier regex fixes never had
+a chance because the text never reached them.
+
+- **`gmail-apps-script.gs` (the essential fix):** collapse the body's whitespace
+  runs and blank lines **before** the length cap, so the content survives.
+  **Users must re-paste the updated script.**
+- **`ingest.js` (defense-in-depth):** `normalizeText()` collapses whitespace on
+  the received text before any parsing/slicing, so a bloated body can't hide the
+  payee server-side either.
+- Regression test reproduces a ~4,800-char whitespace-bloated body and proves the
+  payee lands back within the parse window. Server change: no cache bump.
+
 ## v51 — Format-independent payee recovery (stop "Unknown" whack-a-mole)
 
 - The strong-model safety net for a weak/"Unknown" merchant previously only
